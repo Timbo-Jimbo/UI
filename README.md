@@ -1,0 +1,219 @@
+# Timbo Jimbo - UI
+
+Additional UGUI components.
+
+🟦 **Box**
+
+A `Graphic` that draws a rounded box as a signed distance field: per-corner radii, a continuous corner curvature (circle → parabola → cosine → cubic), an inset stroke, a blur radius and an offset. One instance is one effect, so a panel, its drop shadow and its border are three sibling objects.
+
+🖼️ **Img**
+
+An `Image` subclass with the same gradient and blend mode options, plus a choice of how the colour meets the sprite (multiply, replace, add, screen, darken, lighten, overlay, difference) and a single-pass blur. Everything Image does (sprite types, preserve aspect, fill, sprite meshes, raycasting, layout) works unchanged.
+
+🌈 **Gradient Tint**
+
+Fill a box, or tint a sprite, with a three-stop gradient (from, via, to) at any angle, with per-stop colour and alpha, interpolated in RGB, HSV, OkLab or OkLCh to match the [Property Bindings](https://github.com/Timbo-Jimbo/PropertyBindings) package.
+
+⚡ **One Draw Call**
+
+Every parameter lives in vertex data and all instances of a component share a single material, so shadows, panels, borders and icons batch together.
+
+🎨 **Blend Modes**
+
+Normal, Additive, Multiply and Screen. Each mode has its own shared material, so same-mode elements still batch; the material inspector shows a friendly Blend Mode dropdown.
+
+🧩 **Styling Friendly**
+
+Every parameter is a plain serialized field with a dirtying property, so it works with animation, the Property Bindings package and the Styling package out of the box.
+
+# Installation
+
+This package is available on [OpenUPM](https://openupm.com/packages/com.timbojimbo.ui)
+
+1. Add the Scoped Registry:
+	- Open **Edit > Project Settings > Package Manager**
+	- Add a new Scoped Registry (or append the missing scope if you already have one):
+		- Name: `OpenUPM`
+		- URL: `https://package.openupm.com/`
+		- Scope(s): `com.timbojimbo`
+2. Install the package
+	- Open **Window > Package Manager**
+	- Click Add and select **Add package by name...**
+	- Paste name: `com.timbojimbo.ui`
+
+Done!
+
+> [!WARNING]
+> This package is new - use at your own risk! :)
+
+<details>
+<summary>Install from GitHub instead (Not Recommended)</summary>
+
+You can also add it directly from GitHub. Note that you won't be able to receive updates through Package Manager this way, you'll have to update manually.
+
+- Open **Window > Package Manager**
+- Click add and select **Add package from git URL...**
+- Paste `https://github.com/Timbo-Jimbo/UI.git?path=com.timbojimbo.ui`
+</details>
+
+# Usage
+
+## Box
+
+Add **Timbo Jimbo > UI > Box** to a `RectTransform`. The component adds the extra canvas shader channels it needs automatically.
+
+A rounded card with a shadow and a border is three objects with the same stretch anchors:
+
+| Object | Colour | Corner Radius | Blur | Stroke | Offset |
+|---|---|---|---|---|---|
+| Shadow | black, 50% alpha | 24 | 24 | 0 | (0, -12) |
+| Panel | white | 24 | 0 | 0 | (0, 0) |
+| Border | accent | 24 | 0 | 2 | (0, 0) |
+
+- **Corner Radius** is clamped to half the short side, so a short wide box becomes a pill and a square becomes a circle.
+- **Corner Shape** is a row of preset buttons (Circle, Parabola, Cosine, Cubic) that set the **Curvature** slider. A curvature between presets highlights no button. Near the size limit the shader eases the curvature back to circular so pills stay clean.
+- **Concentric** takes the corner radii and curvature from the nearest parent Box instead, matched per corner so the two rounded rects stay concentric across the gap between them. A child inset by `d` on a corner gets that corner's parent radius minus `d`; a child outset by `d` (larger than the parent) gets the parent radius plus `d`, so the rounded rects stay parallel whether the child is smaller or larger (never below 0). It resolves recursively, so a concentric box under another concentric box still matches the outermost plain box, and it tracks the parent live as the parent's radii, curvature, size or inset change. This assumes the child and parent share a canvas and axis alignment (the normal case). With uneven offsets a corner follows the side that deviates most from the parent, since our circular corners cannot follow CSS's elliptical ones.
+- **Inset** offsets the drawn box within its `RectTransform`, uniformly or per side, in canvas units. Positive shrinks it inward; negative grows it outward past the `RectTransform`, so the box (and any mask taken from it) can spill beyond its layout rect. The corners stay concentric with the full rect, and only the generated mesh changes: the `RectTransform` and layout are untouched. Because a `Mask` stencils from the drawn mesh, an inset Box masks its children to the offset shape without a padded child object, which keeps the masked content an immediate child for layout groups. Note this also offsets the box's own visible fill; to change only the stencil while keeping the fill in place, turn off **Show Mask Graphic** and draw the fill with a sibling, or wait for the planned soft-mask path.
+- **Stroke Width** draws a border ring instead of a fill. A positive width draws the ring inside the edge (CSS border semantics), so it can share the panel's rect; a negative width draws it outside the edge, spilling past the box (the quad grows to fit).
+- **Blur Radius** softens the edge; the quad grows to make room.
+- **Offset** moves the drawn box without moving the `RectTransform`.
+- **Masking** makes the box a UGUI stencil mask for its children, and manages the `Mask` component for you (it appears below the Box, shown but not editable). **None** does not mask. **Draw and Mask** draws the box and clips its children to its shape. **Mask Only** clips the children without drawing the box, so its **Color**, **Gradient** and **Blur** are hidden and treated as white / off / 0, giving a crisp stencil. Combined with **Inset**, a Mask Only box clips its immediate children to an inset rounded shape without a padded wrapper object.
+
+## Gradient
+
+Enable **Gradient** on any box to fill it with a three-stop gradient instead of the solid colour.
+
+- **Interpolation** is the colour space the stops blend through: RGB, HSV, OkLab or OkLCh, the same options as the Property Bindings package. OkLab gives the most even perceptual blend.
+- **Angle** is in degrees; 0 runs left to right, 90 runs bottom to top.
+- The stops are edited on the **preview bar**: **From** and **To** sit at the ends and, with **Use Via Stop** on, a **Via** chevron appears in the middle. Drag the Via chevron to move it, and click any chevron to open the colour picker. The bar previews the real interpolation over a checker, so a stop's alpha reads correctly. **Via Position** is also a numeric slider for precise placement.
+- The box's **Color** multiplies the whole gradient as a tint, and CanvasGroup alpha fades every stop, so gradients respond to colour and fades the same way a solid box does.
+
+Gradients compose with everything else: a rounded, stroked, blurred box can also be a gradient, and gradient boxes still batch into one draw call.
+
+## Img
+
+Add **Timbo Jimbo > UI > Img** instead of Image.
+
+Set a **Texture** on it to show a plain texture the way RawImage does, without a separate component. Img wraps the texture in a generated full-rect sprite and renders that; it takes precedence over Source Image while set, and clearing it falls back to the sprite. Only one shows at a time. The texture must be a `Texture2D`, and the generated sprite is cleaned up automatically.
+
+Img is an `Image`, so its inspector is the stock one plus **Blend Mode** and the same **Gradient** section as Box. The gradient tints the sprite the way **Color** does, evaluated per pixel across the whole rect: a sliced, tiled, filled or preserved-aspect sprite shows the part of the gradient it covers. **Color** still multiplies the result and CanvasGroup alpha fades every stop.
+
+Every Img with the same blend mode shares one material, so icons keep batching as they would with the default UI material.
+
+### Tiled
+
+Img's **Tiled** type draws the tile grid in the shader from a single quad rather than Image's one-quad-per-tile mesh, which is what makes the extra controls possible. The grid only places stamps; the sprite settings say what is stamped at each point:
+
+- **Sprite › Size** is the width of each stamp in canvas units; the height follows the sprite's aspect. 0 uses the sprite's native size (its pixel width over pixels per unit). There is no Pixels Per Unit Multiplier in this type.
+- **Sprite › Rotation** turns each stamp about its placement point, in degrees counter-clockwise, independent of the grid's rotation.
+- **Grid › Rotation** turns the placement grid about the rect centre. The stamps keep their own rotation, so a turned grid with upright sprites is one setting, not two.
+- **Grid › Spacing** is the distance between placement points per axis, in canvas units (up to 8× the sprite size). 0 on an axis means the sprite size, so stamps sit edge to edge; 50 with a 50 sprite in a 100×100 rect is a 2×2 grid. Spacing below the sprite size cuts each stamp off at its cell's edge; stamps never overlap.
+- **Grid › Stagger** shifts each successive row along x (X) and each successive column along y (Y), as a fraction of the spacing. (0.5, 0) is a brick pattern.
+- **Grid › Offset** shifts the grid along its own axes, in canvas units, wrapping every cell.
+- **Grid › Pan** scrolls the grid along its own axes, in canvas units per second (up to 8 cells per second). It runs on shader time, so a scrolling background never rebuilds its mesh. Changing the rate re-phases the pattern (it jumps), so for a controlled slide animate **Offset** instead. In edit mode it advances whenever the view repaints.
+
+The grid starts at the rect's bottom-left like Image's, each pixel belongs to the nearest placement point (cells are rectangles, or the lattice's parallelograms when staggered), and blur flows across stamps and gaps as it would across real geometry. Stamps never bleed their atlas neighbours: every sample is kept half a texel inside the sprite's rect. All of this travels in vertex data (the rotations, spacing, offset and pan as 12-bit pairs relative to the sprite, the stagger and colour blend factor as 8-bit values), so tiled Imgs still share the one material. The sprite's border and Fill Center are not used in this type; use Sliced for a 9-slice frame. Alpha hit testing (`alphaHitTestMinimumThreshold`) still maps through Image's own tile size and does not know about these controls.
+
+### Color Blend
+
+**Color Blend** chooses how the colour (flat or gradient) combines with the sprite's own colour, and **Factor** fades between the untouched sprite (0) and the fully blended result (1). Alpha is always sprite alpha × colour alpha, so the colour's alpha stays an opacity control in every mode.
+
+| Mode | Result |
+|---|---|
+| Multiply | sprite × colour (the stock Image behaviour) |
+| Replace | the colour, keeping the sprite's alpha: a silhouette recolour |
+| Add | sprite + colour |
+| Screen | inverse multiply, always lightens |
+| Darken / Lighten | per-channel min / max |
+| Overlay | multiply in dark areas, screen in light areas |
+| Difference | absolute difference |
+
+### Blur
+
+**Blur Radius** (canvas units) blurs the sprite in a single pass, and **Quality** caps the tap count (up to 3×3, 5×5 or 7×7). The tap count grows with the radius toward that cap, so a small blur is cheap; the taps spread across the radius and each samples the mip whose texel pitch matches the tap spacing, so their footprints tile into a smooth result and cost is bounded by the quality, not the radius. Simple sprites grow their quad by the radius so the blur spills past the sprite's edge; sliced, tiled, filled and mesh sprites blur within their own geometry.
+
+Once the radius exceeds what the tap budget covers, the blur keeps widening but softens rather than getting more expensive. At that point it samples a coarse mip, whose bilinear reconstruction would show a faint block grid; the shader jitters every tap independently by a fraction of a mip texel (an isotropic hash, no texture needed), turning the kernel into a stochastic estimate of a smoother one. The grid dissolves into fine, directionless grain, and averaging across the taps keeps that grain low. The jitter scales with the radius, so small blurs are untouched. It is a per-component toggle, **Jitter**, on by default; the flag rides in vertex data, so turning it off (for the raw blocks) keeps the shared material and adds no draw call. A wide, perfectly smooth blur is the job of a multi-pass (dual-Kawase) approach that scales logarithmically; that is a planned future option, since it needs its own render target and would leave the shared-material batch. For UI glows and soft shadows of a few to a couple of dozen pixels the single pass is smooth.
+
+Two things still limit it, and the inspector warns about both:
+
+- **Mipmaps.** Without them every tap lands on level 0 and wide radii read as ghost copies. Enable Generate Mip Maps on the texture or atlas; Trilinear filtering gives the smoothest result.
+- **Dark seams between mip blocks.** By default Unity averages transparent texels (whose colour is black) into the coarse mips, so a wide blur shows dark grid seams around the sprite and its edges. Enable **Replicate Border** on the texture (or **Alpha Is Transparency**, which dilates the edge colour) so those mips carry colour instead of black. A Sprite Atlas does not expose this and its page mips are lower quality, so a standalone texture blurs noticeably cleaner; prefer one for sprites you blur widely.
+- **Coarse mips.** Once a wide blur samples mips around 16 source pixels per texel, block compression (DXT, ETC, ASTC) is crude at that resolution and streaks through the blur, and in an atlas a tap's bilinear footprint can reach past the sprite's padding into its neighbours. Use an uncompressed format for that atlas, raise its padding, raise the quality, or keep the radius moderate. Typical icon use, a sprite near its native size with a small radius, stays on fine mips and needs none of this.
+
+The blur averages the sprite in the framebuffer's colour space, matching how the rest of the UI blends. Blurred and sharp images share the same material, so blurring never adds a draw call.
+
+## Crisp Small Icons (Sprite Atlas Mip Bias)
+
+Icons drawn much smaller than their source texture look crunchy without mipmaps and soft with them, because a Sprite Atlas can only generate box-filtered mips and exposes no mip bias or Kaiser filtering. The package applies a small negative mip bias to every Sprite Atlas texture automatically: at runtime as each atlas registers, and in the editor after atlas import and domain reload, so previews match. Nothing to add per atlas.
+
+The default is `-0.5`, which suits typical icon minification (a 128 px icon at 32 px). To change it, set `SpriteAtlasMipBias.Bias` from code at startup, before any atlas loads.
+
+For the bias to do anything the atlas needs mipmaps. Recommended settings for an icon atlas:
+
+- **Generate Mip Maps** on, **Filter Mode** Trilinear.
+- **Padding** of 8 or more (a 4 px gutter is a fraction of a pixel a few mip levels down and neighbouring sprites bleed in).
+- **Tight Packing** and **Allow Rotation** off.
+- Source textures imported **uncompressed**, so the atlas packs lossless pixels (Unity warns about this on import).
+
+Very large minification (a 512 px icon at 32 px) is limited by icon detail rather than filtering; author a smaller variant for those cases.
+
+## Scripting API
+
+```csharp
+var box = gameObject.AddComponent<Box>();
+box.color = Color.white;
+box.SetCornerRadius(24f);                 // or box.CornerRadii = new Vector4(tl, tr, br, bl);
+box.CornerCurvature = CornerShape.Cosine.ToCurvature();
+box.StrokeWidth = 2f;
+box.BlurRadius = 0f;
+box.Offset = Vector2.zero;
+
+// Gradient fill
+box.GradientEnabled = true;
+box.GradientMode = ColorInterpolationMode.OkLab;   // from TimboJimbo.Core
+box.GradientAngle = 90f;                            // bottom to top
+box.GradientFrom = Color.magenta;
+box.GradientVia = Color.white;                      // set GradientUseVia = false to skip
+box.GradientTo = Color.cyan;
+box.GradientViaPosition = 0.5f;
+
+// Blend mode (each mode resolves to its own shared material)
+box.BlendMode = UiBlendMode.Additive;
+
+// Img has the Image API plus the same gradient and blend mode members
+var img = gameObject.AddComponent<Img>();
+img.sprite = icon;
+img.GradientEnabled = true;
+img.GradientFrom = Color.white;
+img.GradientTo = Color.gray;
+img.BlendMode = UiBlendMode.Screen;
+img.ColorBlendMode = ColorBlendMode.Replace;   // how the colour meets the sprite
+img.ColorBlendFactor = 1f;
+img.BlurRadius = 6f;                           // canvas units
+img.BlurQuality = BlurQuality.Medium;          // 5x5 taps
+
+// Tiled: shader-drawn grid; the sprite and the grid are set up separately
+img.type = Image.Type.Tiled;
+img.TileSize = 32f;                            // stamp width in canvas units; 0 = native size
+img.TileSpriteRotation = 45f;                  // each stamp about its placement point
+img.TileGridRotation = 15f;                    // the placement grid about the rect centre
+img.TileSpacing = new Vector2(40f, 36f);       // between placement points; 0 = sprite size
+img.TileStagger = new Vector2(0.5f, 0f);       // brick pattern
+img.TileOffset = new Vector2(10f, 0f);         // canvas units, wraps every cell
+img.TilePan = new Vector2(20f, 0f);            // canvas units per second, on shader time
+```
+
+## Blend Modes
+
+Set **Blend Mode** on the component (or `BlendMode` in code) to choose how a box or image composites with what is behind it:
+
+- **Normal** — standard alpha over.
+- **Additive** — adds to the background; glows and light.
+- **Multiply** — always darkens.
+- **Screen** — always lightens.
+
+Every element of a given component and mode shares one material and batches together; switching to a different mode moves it to that mode's material, which is a separate draw call. When authoring a material by hand, the Box and Img material inspectors show the same Blend Mode dropdown.
+
+# AI Usage Disclosure
+
+Parts of this package were written with the help of AI tools. Everything is reviewed and tested by a human before release.

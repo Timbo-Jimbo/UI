@@ -1,0 +1,20 @@
+{
+	"name": "com.timbojimbo.ui",
+	"displayName":"UI",
+	"version": "0.1.0",
+	"unity": "6000.0",
+	"unityRelease": "0f1",
+	"description": "Additional UGUI components: SDF rounded boxes, drop shadows and borders.",
+	"dependencies": {
+		"com.unity.ugui": "2.0.0",
+		"com.timbojimbo.core": "0.6.0"
+	},
+	"author": {
+		"name": "Timbo Jimbo",
+		"url": "https://timbojimbo.com",
+		"email": "hello@timbojimbo.com"
+	},
+	"changelogUrl": "https://github.com/Timbo-Jimbo/UI/blob/main/com.timbojimbo.ui/CHANGELOG.md",
+	"documentationUrl": "https://github.com/Timbo-Jimbo/UI#readme",
+	"licensesUrl": "https://github.com/Timbo-Jimbo/UI/blob/main/LICENSE"
+}
