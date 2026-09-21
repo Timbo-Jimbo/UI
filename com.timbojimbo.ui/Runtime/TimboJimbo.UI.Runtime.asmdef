@@ -3,7 +3,8 @@
     "rootNamespace": "TimboJimbo.UI",
     "references": [
         "UnityEngine.UI",
-        "TimboJimbo.Core.Runtime"
+        "TimboJimbo.Core.Runtime",
+        "TimboJimbo.UI.Layout.Runtime"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
@@ -12,6 +13,12 @@
     "precompiledReferences": [],
     "autoReferenced": true,
     "defineConstraints": [],
-    "versionDefines": [],
+    "versionDefines": [
+        {
+            "name": "com.timbojimbo.ui.layout",
+            "expression": "0.1.0",
+            "define": "TJ_UI_LAYOUT"
+        }
+    ],
     "noEngineReferences": false
 }
