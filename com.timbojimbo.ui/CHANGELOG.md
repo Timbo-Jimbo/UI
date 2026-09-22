@@ -2,6 +2,7 @@
 
 ### Added
 
+- `Img` reports its size as animatable to layout transitions, so a picture scales between two layouts instead of snapping
 - `Img` implements the UI Layout package's `ILayoutMeasurable` when that package is installed (optional reference, `TJ_UI_LAYOUT`), reporting its sprite's size, so an image is a `LayoutNode`'s content directly
 
 ## [0.1.0] - 18/09/2026
