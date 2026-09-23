@@ -5,6 +5,15 @@
 - `Img` reports its size as animatable to layout transitions, so a picture scales between two layouts instead of snapping
 - `Img` implements the UI Layout package's `ILayoutMeasurable` when that package is installed (optional reference, `TJ_UI_LAYOUT`), reporting its sprite's size, so an image is a `LayoutNode`'s content directly
 
+### Fixed
+
+- `Box` and `Img` gradients no longer scramble into flickering hues when the graphic is rotated or scaled. The stops travelled packed in the vertex normal and tangent, which the canvas transforms by the graphic's rotation and scale when it batches; they now travel in texcoords, which it passes through as written, and neither component asks for the Normal or Tangent canvas channels. To make room, `Box` sends its corner radii as 12-bit fractions of its short side and its via position shares a float with the curvature; `Img` sends its blur step as two 12-bit log-scale values in one float, and a tiled `Img` its corners as rect-centred positions, the half size being their magnitude.
+
+### Removed
+
+- `Img`'s via stop (`GradientUseVia`, `GradientVia`, `GradientViaPosition`): its gradient is two-stop, since its texcoords have no room for a third once the stops leave the normal and tangent. `Box` keeps all three.
+- `Img.TilePan`, the shader-time scrolling of a tiled grid, for the same room; animate `TileOffset` to scroll.
+
 ## [0.1.0] - 18/09/2026
 
 ### Added

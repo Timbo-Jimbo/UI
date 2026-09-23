@@ -2,23 +2,23 @@
 // a single-pass sprite blur, and material-driven blend factors, for the Img component. Every effect
 // parameter arrives in vertex data so all Img instances share one material per blend mode and batch.
 //
-// Vertex contract (written by TimboJimbo.UI.Img on top of Image's own geometry; gradient channels per
-// UiGradient.cginc):
+// Vertex contract (written by TimboJimbo.UI.Img on top of Image's own geometry; gradient fields per
+// UiGradient.cginc). Everything is in texcoords, which the canvas passes through as written; it transforms a
+// normal or tangent by the image's rotation and scale, which would scramble anything packed there.
 //   COLOR     = Graphic.color, the tint (8-bit; the renderer folds CanvasGroup alpha into it)
-//   NORMAL    = (from packed.x, from packed.y, via packed.x)
-//   TANGENT   = (via packed.y, to packed.x, to packed.y, viaPosition)
-//   TEXCOORD0 = (sprite uv.x, sprite uv.y, blur tap spacing in uv.x, .y)
-//               Tiled: (corner.x, corner.y, tile width, blur tap spacing) with the corner 0/1 (the position is
-//               derived from it) and the last two in canvas units; the sprite uv is derived per pixel
+//   TEXCOORD0 = (sprite uv.x, sprite uv.y, blur tap spacing in uv (UiPacking.PackLogPair12), 0)
+//               Tiled: (tile width, blur tap spacing, offPair, staggerPair), the first two in canvas units;
+//               the sprite uv is derived per pixel
 //   TEXCOORD1 = (halfSize.x, halfSize.y, rectCentredPos.x, rectCentredPos.y)
-//               Tiled: (halfSize.x, halfSize.y, rotPair, spacingPair)
-//   TEXCOORD2 = (header, offPair, panPair, factorAndStagger)
+//               Tiled: (rectCentredPos.x, rectCentredPos.y, rotPair, spacingPair); the quad is the rect, so
+//               each corner sits at ± the half size and the half size is its magnitude
+//   TEXCOORD2 = (header, gradient from RGB, gradient to RGB, alphasAndFactor)
 //               header (UiPacking.PackImgHeader) = gradient mode + blurTaps*8 + jitter*64 + tiled*128 +
-//               colourBlendMode*256, with the gradient angle as the fraction; factorAndStagger
-//               (UiPacking.PackTriple8) = colour blend factor, stagger.x, stagger.y; the pairs are
+//               colourBlendMode*256, with the gradient angle as the fraction; the RGBs and alphasAndFactor
+//               (from alpha, to alpha, colour blend factor) are UiPacking.PackTriple8; the pairs are
 //               UiPacking.PackPair12 of (grid rotation, sprite rotation) as turns, (spacing.x, .y) as a
 //               fraction of TILE_SPACING_RANGE sprite sizes, (offset.x, .y) as a fraction of the spacing and
-//               (pan.x, .y) as a signed fraction of TILE_PAN_RANGE spacings per second
+//               (stagger.x, .y) as a fraction of the spacing
 //   TEXCOORD3 = sprite uv bounds (minU, minV, maxU, maxV); samples stay inside, taps outside are transparent
 Shader "TimboJimbo/UI/Img"
 {
@@ -90,7 +90,6 @@ Shader "TimboJimbo/UI/Img"
             #define BLUR_MIP_BIAS 0.0
             // Ranges of the packed tile layout; mirrored by TimboJimbo.UI.Img.
             #define TILE_SPACING_RANGE 8.0   // spacing, in sprite sizes
-            #define TILE_PAN_RANGE 8.0       // pan, in spacings per second
 
             // Colour blend modes, matching TimboJimbo.UI.ColorBlendMode.
             #define CBLEND_MULTIPLY 0
@@ -110,8 +109,6 @@ Shader "TimboJimbo/UI/Img"
                 float4 box      : TEXCOORD1;
                 float4 params   : TEXCOORD2;
                 float4 bounds   : TEXCOORD3;
-                float3 normal   : NORMAL;
-                float4 tangent  : TANGENT;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -125,7 +122,7 @@ Shader "TimboJimbo/UI/Img"
                 float4 gStops0  : TEXCOORD3;   // packed from.xy, packed via.xy
                 float4 gStops1  : TEXCOORD4;   // packed to.xy, viaPosition, gradient mode (0 = off)
                 float2 gDir     : TEXCOORD5;   // gradient axis direction
-                float4 effects  : TEXCOORD6;   // header (raw), factorAndStagger (raw), panPair, 0
+                float4 effects  : TEXCOORD6;   // header (raw), colour blend factor, staggerPair, 0
                 float4 bounds   : TEXCOORD7;   // sprite uv bounds
                 float4 tile     : TEXCOORD8;   // sprite width, rotPair, spacingPair, offPair
                 UNITY_VERTEX_OUTPUT_STEREO
@@ -300,18 +297,21 @@ Shader "TimboJimbo/UI/Img"
                 unpackImgHeader(header, gradientMode, blurTaps, jitter, tiled, colorBlendMode);
                 bool isTiled = tiled > 0.5;
 
-                // Tiled quads carry their corner in uv0.xy (the rect-centred position comes from it) and the
-                // tile width and tap spacing in uv0.zw, so there is no sprite uv to transform.
-                float2 position = isTiled ? (v.texcoord.xy * 2.0 - 1.0) * v.box.xy : v.box.zw;
-                OUT.box = float4(v.box.xy, position);
+                // A tiled quad is the rect: each corner carries its rect-centred position, which is ± the half
+                // size, and uv0 carries the tile data, so there is no sprite uv to transform.
+                float2 halfSize = isTiled ? abs(v.box.xy) : v.box.xy;
+                float2 position = isTiled ? v.box.xy : v.box.zw;
+                OUT.box = float4(halfSize, position);
                 OUT.texcoord = isTiled
-                    ? float4(0.0, 0.0, v.texcoord.w, v.texcoord.w)
-                    : float4(TRANSFORM_TEX(v.texcoord.xy, _MainTex), v.texcoord.zw);
-                OUT.tile = float4(v.texcoord.z, v.box.z, v.box.w, v.params.y);
+                    ? float4(0.0, 0.0, v.texcoord.y, v.texcoord.y)
+                    : float4(TRANSFORM_TEX(v.texcoord.xy, _MainTex), unpackLogPair12(v.texcoord.z));
+                OUT.tile = float4(v.texcoord.x, v.box.z, v.box.w, v.texcoord.z);
                 OUT.mask = float4(v.vertex.xy * 2 - clampedRect.xy - clampedRect.zw, 0.25 / (0.25 * half2(_UIMaskSoftnessX, _UIMaskSoftnessY) + abs(pixelSize.xy)));
                 OUT.bounds = v.bounds;
 
-                OUT.effects = float4(v.params.x, v.params.w, v.params.z, 0.0);
+                // The stops' alphas share a float with the colour blend factor.
+                float3 alphasAndFactor = unpackBytes(v.params.w);
+                OUT.effects = float4(v.params.x, alphasAndFactor.z / 255.0, isTiled ? v.texcoord.w : 0.0, 0.0);
 
                 // Graphic.color is the tint; it stays in framebuffer space and is applied after the gradient
                 // is converted. Honour the project option that keeps UI vertex colours in gamma.
@@ -319,7 +319,7 @@ Shader "TimboJimbo/UI/Img"
                 if (_UIVertexColorAlwaysGammaSpace && !IsGammaSpace())
                     OUT.tint.rgb = UIGammaToLinear(OUT.tint.rgb);
 
-                unpackGradientParts(v.normal, v.tangent, gradientMode, angle01, OUT.gStops0, OUT.gStops1, OUT.gDir);
+                unpackGradientTwoStops(v.params.y, v.params.z, alphasAndFactor.xy, gradientMode, angle01, OUT.gStops0, OUT.gStops1, OUT.gDir);
 
                 return OUT;
             }
@@ -334,26 +334,25 @@ Shader "TimboJimbo/UI/Img"
                 int blurTaps = (int)tapsF;
                 bool tiled = tiledF > 0.5;
                 float jitterTexels = jitterF > 0.5 ? BLUR_JITTER_TEXELS : 0.0;
-                float blendFactor, staggerX, staggerY;
-                unpackTriple8(IN.effects.y, blendFactor, staggerX, staggerY);
+                float blendFactor = IN.effects.y;
+                float staggerX, staggerY;
+                unpackPair12(IN.effects.z, staggerX, staggerY);
 
                 Tiling t;
                 t.halfSize = IN.box.xy;
                 t.bounds = IN.bounds;
                 float2 spritePixels = (IN.bounds.zw - IN.bounds.xy) * _MainTex_TexelSize.zw;
                 t.spriteSize = max(float2(IN.tile.x, IN.tile.x * spritePixels.y / max(spritePixels.x, 1e-4)), 1e-4);
-                float gridTurns, spriteTurns, spacingX, spacingY, offX, offY, panX, panY;
+                float gridTurns, spriteTurns, spacingX, spacingY, offX, offY;
                 unpackPair12(IN.tile.y, gridTurns, spriteTurns);
                 unpackPair12(IN.tile.z, spacingX, spacingY);
                 unpackPair12(IN.tile.w, offX, offY);
-                unpackPair12(IN.effects.z, panX, panY);
                 sincos(gridTurns * TWO_PI, t.gridSin, t.gridCos);
                 // The sprite's rotation is in canvas orientation; inside grid space that is relative to the grid.
                 sincos((spriteTurns - gridTurns) * TWO_PI, t.stampSin, t.stampCos);
                 t.spacing = max(t.spriteSize * float2(spacingX, spacingY) * TILE_SPACING_RANGE, 1e-4);
                 t.stagger = float2(staggerX, staggerY);
-                float2 pan = (float2(panX, panY) * 2.0 - 1.0) * TILE_PAN_RANGE;   // spacings per second
-                t.shift = (float2(offX, offY) + pan * _Time.y) * t.spacing;
+                t.shift = float2(offX, offY) * t.spacing;
 
                 // The sample coordinate: the sprite uv, or the continuous grid coordinate when tiled. Its
                 // derivatives are taken here, before any branch, and unclamped so the edge clamp and the

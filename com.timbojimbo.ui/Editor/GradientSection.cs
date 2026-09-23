@@ -9,9 +9,10 @@ namespace TimboJimboEditor.UI
 {
     /// <summary>
     /// Draws the gradient fields shared by <see cref="TimboJimbo.UI.Box"/> and <see cref="TimboJimbo.UI.Img"/>.
-    /// Both components serialize the same field names, so one section serves both inspectors. The stops are
-    /// edited on a live preview bar: chevrons for From, To and (when enabled) Via, dragged to reposition Via and
-    /// clicked to open the colour picker. The preview evaluates the same interpolation the shader does.
+    /// Both components serialize the same field names, so one section serves both inspectors; Img has no via
+    /// stop, so the via controls show only where the fields exist. The stops are edited on a live preview bar:
+    /// chevrons for From, To and (when enabled) Via, dragged to reposition Via and clicked to open the colour
+    /// picker. The preview evaluates the same interpolation the shader does.
     /// </summary>
     internal sealed class GradientSection
     {
@@ -65,11 +66,14 @@ namespace TimboJimboEditor.UI
             {
                 DrawBar();
 
-                EditorGUILayout.PropertyField(_useVia, new GUIContent("Use Via Stop"));
-                if (!_useVia.hasMultipleDifferentValues && _useVia.boolValue)
+                if (_useVia != null)
                 {
-                    using (new EditorGUI.IndentLevelScope())
-                        EditorGUILayout.Slider(_viaPosition, 0f, 1f, new GUIContent("Via Position"));
+                    EditorGUILayout.PropertyField(_useVia, new GUIContent("Use Via Stop"));
+                    if (!_useVia.hasMultipleDifferentValues && _useVia.boolValue)
+                    {
+                        using (new EditorGUI.IndentLevelScope())
+                            EditorGUILayout.Slider(_viaPosition, 0f, 1f, new GUIContent("Via Position"));
+                    }
                 }
 
                 EditorGUILayout.PropertyField(_mode, new GUIContent("Interpolation"));
@@ -81,12 +85,12 @@ namespace TimboJimboEditor.UI
 
         private void DrawBar()
         {
-            var useVia = !_useVia.hasMultipleDifferentValues && _useVia.boolValue;
+            var useVia = _useVia != null && !_useVia.hasMultipleDifferentValues && _useVia.boolValue;
             var mode = (ColorInterpolationMode)_mode.enumValueIndex;
             var from = _from.colorValue;
-            var via = _via.colorValue;
+            var via = _via != null ? _via.colorValue : Color.clear;
             var to = _to.colorValue;
-            var viaPos = Mathf.Clamp01(_viaPosition.floatValue);
+            var viaPos = _viaPosition != null ? Mathf.Clamp01(_viaPosition.floatValue) : 0.5f;
 
             // GetControlRect reserves the full content width without applying the indent, so align the bar
             // with the sibling fields (Use Via Stop, Interpolation, Angle) by indenting it explicitly.

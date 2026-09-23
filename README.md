@@ -12,7 +12,7 @@ An `Image` subclass with the same gradient and blend mode options, plus a choice
 
 🌈 **Gradient Tint**
 
-Fill a box, or tint a sprite, with a three-stop gradient (from, via, to) at any angle, with per-stop colour and alpha, interpolated in RGB, HSV, OkLab or OkLCh to match the [Property Bindings](https://github.com/Timbo-Jimbo/PropertyBindings) package.
+Fill a box with a three-stop gradient (from, via, to), or tint a sprite with a two-stop one, at any angle, with per-stop colour and alpha, interpolated in RGB, HSV, OkLab or OkLCh to match the [Property Bindings](https://github.com/Timbo-Jimbo/PropertyBindings) package.
 
 ⚡ **One Draw Call**
 
@@ -96,7 +96,7 @@ Add **Timbo Jimbo > UI > Img** instead of Image.
 
 Set a **Texture** on it to show a plain texture the way RawImage does, without a separate component. Img wraps the texture in a generated full-rect sprite and renders that; it takes precedence over Source Image while set, and clearing it falls back to the sprite. Only one shows at a time. The texture must be a `Texture2D`, and the generated sprite is cleaned up automatically.
 
-Img is an `Image`, so its inspector is the stock one plus **Blend Mode** and the same **Gradient** section as Box. The gradient tints the sprite the way **Color** does, evaluated per pixel across the whole rect: a sliced, tiled, filled or preserved-aspect sprite shows the part of the gradient it covers. **Color** still multiplies the result and CanvasGroup alpha fades every stop.
+Img is an `Image`, so its inspector is the stock one plus **Blend Mode** and Box's **Gradient** section with two stops (no via stop: its vertex data has no room for a third). The gradient tints the sprite the way **Color** does, evaluated per pixel across the whole rect: a sliced, tiled, filled or preserved-aspect sprite shows the part of the gradient it covers. **Color** still multiplies the result and CanvasGroup alpha fades every stop.
 
 Every Img with the same blend mode shares one material, so icons keep batching as they would with the default UI material.
 
@@ -109,8 +109,7 @@ Img's **Tiled** type draws the tile grid in the shader from a single quad rather
 - **Grid › Rotation** turns the placement grid about the rect centre. The stamps keep their own rotation, so a turned grid with upright sprites is one setting, not two.
 - **Grid › Spacing** is the distance between placement points per axis, in canvas units (up to 8× the sprite size). 0 on an axis means the sprite size, so stamps sit edge to edge; 50 with a 50 sprite in a 100×100 rect is a 2×2 grid. Spacing below the sprite size cuts each stamp off at its cell's edge; stamps never overlap.
 - **Grid › Stagger** shifts each successive row along x (X) and each successive column along y (Y), as a fraction of the spacing. (0.5, 0) is a brick pattern.
-- **Grid › Offset** shifts the grid along its own axes, in canvas units, wrapping every cell.
-- **Grid › Pan** scrolls the grid along its own axes, in canvas units per second (up to 8 cells per second). It runs on shader time, so a scrolling background never rebuilds its mesh. Changing the rate re-phases the pattern (it jumps), so for a controlled slide animate **Offset** instead. In edit mode it advances whenever the view repaints.
+- **Grid › Offset** shifts the grid along its own axes, in canvas units, wrapping every cell. Animate it to scroll the grid.
 
 The grid starts at the rect's bottom-left like Image's, each pixel belongs to the nearest placement point (cells are rectangles, or the lattice's parallelograms when staggered), and blur flows across stamps and gaps as it would across real geometry. Stamps never bleed their atlas neighbours: every sample is kept half a texel inside the sprite's rect. All of this travels in vertex data (the rotations, spacing, offset and pan as 12-bit pairs relative to the sprite, the stagger and colour blend factor as 8-bit values), so tiled Imgs still share the one material. The sprite's border and Fill Center are not used in this type; use Sliced for a 9-slice frame. Alpha hit testing (`alphaHitTestMinimumThreshold`) still maps through Image's own tile size and does not know about these controls.
 
@@ -199,8 +198,7 @@ img.TileSpriteRotation = 45f;                  // each stamp about its placement
 img.TileGridRotation = 15f;                    // the placement grid about the rect centre
 img.TileSpacing = new Vector2(40f, 36f);       // between placement points; 0 = sprite size
 img.TileStagger = new Vector2(0.5f, 0f);       // brick pattern
-img.TileOffset = new Vector2(10f, 0f);         // canvas units, wraps every cell
-img.TilePan = new Vector2(20f, 0f);            // canvas units per second, on shader time
+img.TileOffset = new Vector2(10f, 0f);         // canvas units, wraps every cell; animate it to scroll
 ```
 
 ## Blend Modes

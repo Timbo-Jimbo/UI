@@ -1,15 +1,15 @@
 // Signed-distance rounded box for UGUI. Every parameter (rect size, per-corner radii, corner curvature,
 // stroke width, blur radius, and a three-stop gradient) arrives in vertex data so all Box instances share
-// one material and batch.
+// one material and batch. All of it is in texcoords, which the canvas passes through as written; it
+// transforms a normal or tangent by the box's rotation and scale, which would scramble anything packed there.
 //
-// Vertex contract (written by TimboJimbo.UI.Box; gradient channels per UiGradient.cginc):
+// Vertex contract (written by TimboJimbo.UI.Box; gradient fields per UiGradient.cginc):
 //   COLOR     = Graphic.color, the tint (8-bit; the renderer folds CanvasGroup alpha into it)
-//   NORMAL    = (from packed.x, from packed.y, via packed.x)   stops packed two 8-bit channels per float
-//   TANGENT   = (via packed.y, to packed.x, to packed.y, viaPosition)   viaPosition < 0 => no via stop
-//   TEXCOORD0 = (uv.x, uv.y, 0, 0)
+//   TEXCOORD0 = (uv.x, uv.y, from RGB, via RGB)   a stop's RGB as three 8-bit integers in one float
 //   TEXCOORD1 = (halfSize.x, halfSize.y, samplePos.x, samplePos.y)
-//   TEXCOORD2 = corner radii as (topRight, bottomRight, topLeft, bottomLeft)
-//   TEXCOORD3 = (blurRadius, strokeWidth, curvature 0..3, packedGradient)
+//   TEXCOORD2 = (radii TR|BR, radii TL|BL, to RGB, alphas from|via|to)   radii as 12-bit fractions of the
+//               short side, two to a float (UiPacking.PackPair12)
+//   TEXCOORD3 = (blurRadius, strokeWidth, curvature 0..1|via position (PackPair12), gradient header)
 Shader "TimboJimbo/UI/Box"
 {
     Properties
@@ -87,8 +87,6 @@ Shader "TimboJimbo/UI/Box"
                 float4 box      : TEXCOORD1;
                 float4 radii    : TEXCOORD2;
                 float4 params   : TEXCOORD3;
-                float3 normal   : NORMAL;
-                float4 tangent  : TANGENT;
                 UNITY_VERTEX_INPUT_INSTANCE_ID
             };
 
@@ -244,7 +242,11 @@ Shader "TimboJimbo/UI/Box"
                 // bottom radius is 0. Scale all radii by the tightest edge that overflows. radii = (TR,BR,TL,BL).
                 float2 halfSize = v.box.xy;
                 float2 fullSize = halfSize * 2.0;
-                float4 rIn = max(v.radii, 0.0);
+                // Radii arrive as fractions of the short side, (TR, BR) and (TL, BL).
+                float4 rIn;
+                unpackPair12(v.radii.x, rIn.x, rIn.y);
+                unpackPair12(v.radii.y, rIn.z, rIn.w);
+                rIn *= max(min(fullSize.x, fullSize.y), 0.0);
                 float topSum = rIn.z + rIn.x;    // TL + TR span the top edge (width)
                 float botSum = rIn.w + rIn.y;    // BL + BR span the bottom edge (width)
                 float leftSum = rIn.z + rIn.w;   // TL + BL span the left edge (height)
@@ -262,9 +264,12 @@ Shader "TimboJimbo/UI/Box"
                 float4 headroom = maxRadius - radii;
                 float4 toCircle = saturate((BLEND_TO_CIRCLE_DISTANCE - headroom) / BLEND_TO_CIRCLE_DISTANCE);
 
+                float curvature01, viaPosition;
+                unpackPair12(v.params.z, curvature01, viaPosition);
+
                 OUT.box = v.box;
                 OUT.radii = radii;
-                OUT.curvature = v.params.z * (1.0 - toCircle);
+                OUT.curvature = curvature01 * CORNER_CUBIC * (1.0 - toCircle);
                 OUT.sdfParams = v.params.xy;
 
                 // Graphic.color is the tint; it stays in framebuffer space and is applied after the gradient
@@ -273,7 +278,7 @@ Shader "TimboJimbo/UI/Box"
                 if (_UIVertexColorAlwaysGammaSpace && !IsGammaSpace())
                     OUT.tint.rgb = UIGammaToLinear(OUT.tint.rgb);
 
-                unpackGradient(v.normal, v.tangent, v.params.w, OUT.gStops0, OUT.gStops1, OUT.gDir);
+                unpackGradientStops(float4(v.texcoord.zw, v.radii.zw), v.params.w, viaPosition, OUT.gStops0, OUT.gStops1, OUT.gDir);
 
                 return OUT;
             }

@@ -1,14 +1,17 @@
 // Three-stop gradient evaluation shared by the package's UI shaders (Box, Img).
 //
-// Vertex contract (written by TimboJimbo.UI.UiPacking):
-//   COLOR   = Graphic.color, the tint (8-bit; the renderer folds CanvasGroup alpha into it)
-//   NORMAL  = (from packed.x, from packed.y, via packed.x)   stops packed two 8-bit channels per float
-//   TANGENT = (via packed.y, to packed.x, to packed.y, viaPosition)   viaPosition < 0 => no via stop
-//   packed  = interpMode (integer, 0 = off, else mode+1) plus normalisedAngle as a half-range fraction
-//             (see UiPacking.PackIntAndFraction), one float the component places in a texcoord
+// Vertex contract (written by TimboJimbo.UI.UiPacking), always in texcoords the component places: the
+// canvas passes those through as written, while it transforms a normal or tangent by the graphic's rotation
+// and scale when it batches, which would scramble anything packed there. A stop's RGB travels as three 8-bit
+// integers in one float (PackTriple8), its alpha as a byte of another.
+//   Box (unpackGradientStops): three stops as four floats, from, via and to RGB then the three alphas
+//     (PackStopsForTexcoords); a header, interpMode (integer, 0 = off, else mode+1) plus 8 with a via stop,
+//     and the normalised angle as a half-range fraction (PackGradientHeader); and the via position.
+//   Img (unpackGradientTwoStops): two stops, from and to RGB and their alphas, with the mode and angle taken
+//     from its own header.
 //
-// Usage: in the vertex shader call unpackGradient to fill the three v2f fields, then in the fragment shader
-// call gradientBaseColor with the rect-centred pixel position and the rect's half size.
+// Usage: in the vertex shader unpack into the three v2f fields, then in the fragment shader call
+// gradientBaseColor with the rect-centred pixel position and the rect's half size.
 #ifndef TIMBOJIMBO_UI_GRADIENT_INCLUDED
 #define TIMBOJIMBO_UI_GRADIENT_INCLUDED
 
@@ -127,23 +130,33 @@ float4 lerpOkLCh(float4 a, float4 b, float t)
 }
 
 // ---- Gradient ----------------------------------------------------------------------------------------
-// Splits the per-vertex descriptor into the v2f fields: stops0 = packed from/via, stops1 = packed to,
-// via position and mode (0 = off), dir = the gradient axis. Runs in the vertex stage on exact attributes.
-void unpackGradientParts(float3 normal, float4 tangent, float mode, float angle01, out float4 stops0, out float4 stops1, out float2 dir)
+// Fills the v2f fields gradientBaseColor reads from stop channels as 0..255 integers: stops0 = from and via,
+// stops1 = to, the via position (< 0 for none) and the mode (0 = off), each stop repacked two channels to a
+// float (r*256+g, b*256+a); dir = the gradient axis. Runs in the vertex stage on exact attributes.
+void gradientFields(float3 from, float3 via, float3 to, float3 alpha, float viaPosition, float mode, float angle01, out float4 stops0, out float4 stops1, out float2 dir)
 {
+    stops0 = float4(from.x * 256.0 + from.y, from.z * 256.0 + alpha.x, via.x * 256.0 + via.y, via.z * 256.0 + alpha.y);
+    stops1 = float4(to.x * 256.0 + to.y, to.z * 256.0 + alpha.z, viaPosition, mode);
     float angle = angle01 * TWO_PI;
-    stops0 = float4(normal.x, normal.y, normal.z, tangent.x);
-    stops1 = float4(tangent.y, tangent.z, tangent.w, mode);
     dir = float2(cos(angle), sin(angle));
 }
 
-// As above for a descriptor packed by UiPacking.PackModeAndAngle (mode integer + angle fraction). A shader
-// that folds more fields into the integer (Img) splits it itself and calls unpackGradientParts.
-void unpackGradient(float3 normal, float4 tangent, float packed, out float4 stops0, out float4 stops1, out float2 dir)
+// Box's three stops (UiPacking.PackStopsForTexcoords: from, via and to RGB, then the three alphas) with its
+// header (UiPacking.PackGradientHeader) and via position.
+void unpackGradientStops(float4 packedStops, float header, float viaPosition, out float4 stops0, out float4 stops1, out float2 dir)
 {
-    float mode, angle01;
-    unpackIntAndFraction(packed, mode, angle01);
-    unpackGradientParts(normal, tangent, mode, angle01, stops0, stops1, dir);
+    float code, angle01;
+    unpackIntAndFraction(header, code, angle01);
+    float hasVia = code > 7.5 ? 1.0 : 0.0;
+    gradientFields(unpackBytes(packedStops.x), unpackBytes(packedStops.y), unpackBytes(packedStops.z), unpackBytes(packedStops.w),
+        hasVia > 0.5 ? viaPosition : -1.0, code - hasVia * 8.0, angle01, stops0, stops1, dir);
+}
+
+// Img's two stops: from and to RGB (UiPacking.PackTriple8) and their alphas as 0..255 integers, with the mode
+// and angle from its own header.
+void unpackGradientTwoStops(float fromRgb, float toRgb, float2 alphas, float mode, float angle01, out float4 stops0, out float4 stops1, out float2 dir)
+{
+    gradientFields(unpackBytes(fromRgb), 0.0, unpackBytes(toRgb), float3(alphas.x, 0.0, alphas.y), -1.0, mode, angle01, stops0, stops1, dir);
 }
 
 float4 evalGradient(float4 from, float4 via, float4 to, float viaPos, int mode, float t)

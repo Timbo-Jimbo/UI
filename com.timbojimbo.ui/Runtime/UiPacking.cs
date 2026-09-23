@@ -30,10 +30,28 @@ namespace TimboJimbo.UI
             return Mathf.Floor(Mathf.Clamp01(a01) * 4095f + 0.5f) * 4096f + Mathf.Floor(Mathf.Clamp01(b01) * 4095f + 0.5f);
         }
 
-        /// <summary>Interpolation mode (0 = gradient off, else mode + 1) with the wrapped angle as the fraction.</summary>
-        public static float PackModeAndAngle(bool enabled, ColorInterpolationMode mode, float angleDegrees)
+        /// <summary>
+        /// Box's gradient header: the interpolation mode (0 = gradient off, else mode + 1), plus 8 when there is a via
+        /// stop, with the wrapped angle as the fraction. Mirrors unpackGradientStops in UiGradient.cginc.
+        /// </summary>
+        public static float PackGradientHeader(bool enabled, ColorInterpolationMode mode, bool useVia, float angleDegrees)
         {
-            return PackIntAndFraction(enabled ? (int)mode + 1 : 0, Mathf.Repeat(angleDegrees / 360f, 1f));
+            return PackIntAndFraction((enabled ? (int)mode + 1 : 0) + (useVia ? 8 : 0), Mathf.Repeat(angleDegrees / 360f, 1f));
+        }
+
+        /// <summary>
+        /// Packs the gradient stops for texcoords: each stop's RGB as three 8-bit values in one float and the three
+        /// alphas (from, via, to) in a fourth (<see cref="PackTriple8"/>). Texcoords reach the shader as they were
+        /// written; a normal or tangent does not, since the canvas transforms them by the graphic's rotation and
+        /// scale when it batches, which scrambles anything packed into them.
+        /// </summary>
+        public static Vector4 PackStopsForTexcoords(Color from, Color via, Color to)
+        {
+            return new Vector4(
+                PackTriple8(from.r, from.g, from.b),
+                PackTriple8(via.r, via.g, via.b),
+                PackTriple8(to.r, to.g, to.b),
+                PackTriple8(from.a, via.a, to.a));
         }
 
         /// <summary>
@@ -62,29 +80,25 @@ namespace TimboJimbo.UI
             return PackIntAndFraction(header, Mathf.Repeat(angleDegrees / 360f, 1f));
         }
 
+        /// <summary>Smallest and largest magnitude <see cref="PackLogPair12"/> spans, as powers of two. Mirrors UiPacking.cginc.</summary>
+        private const float LogPairMin = -24f, LogPairMax = 8f;
+
         /// <summary>
-        /// Packs the gradient stops into the normal and tangent, two 8-bit channels per float, leaving the
-        /// colour channel free for <see cref="Graphic.color"/>. A via position below 0 tells the shader there
-        /// is no via stop.
+        /// Two non-negative values in one float, each a 12-bit step on a log2 scale from 2^-24 to 2^8 (steps about
+        /// 0.5% apart), with 0 kept exact. For a scale that spans orders of magnitude, such as a blur step in uv.
+        /// Mirrors unpackLogPair12 in UiPacking.cginc.
         /// </summary>
-        public static void PackStops(Color from, Color via, Color to, bool useVia, float viaPosition, out Vector3 normal, out Vector4 tangent)
+        public static float PackLogPair12(float a, float b)
         {
-            var f = PackColor(from);
-            var v = PackColor(via);
-            var t = PackColor(to);
-            normal = new Vector3(f.x, f.y, v.x);
-            tangent = new Vector4(v.y, t.x, t.y, useVia ? viaPosition : -1f);
+            return LogCode(a) * 4096f + LogCode(b);
         }
 
-        // Packs an LDR colour into two floats, two 8-bit channels each (r,g then b,a). Integers up to 65535
-        // are exact in a 32-bit float, so the stops arrive intact at the vertices.
-        private static Vector2 PackColor(Color c)
+        // 0 for zero, else 1..4095 along the log scale.
+        private static float LogCode(float value)
         {
-            var r = Mathf.Floor(Mathf.Clamp01(c.r) * 255f);
-            var g = Mathf.Floor(Mathf.Clamp01(c.g) * 255f);
-            var b = Mathf.Floor(Mathf.Clamp01(c.b) * 255f);
-            var a = Mathf.Floor(Mathf.Clamp01(c.a) * 255f);
-            return new Vector2(r * 256f + g, b * 256f + a);
+            if (value <= 0f) return 0f;
+            var t = (Mathf.Log(value, 2f) - LogPairMin) / (LogPairMax - LogPairMin);
+            return 1f + Mathf.Round(Mathf.Clamp01(t) * 4094f);
         }
     }
 }

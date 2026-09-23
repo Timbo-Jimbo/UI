@@ -23,9 +23,7 @@ namespace TimboJimbo.UI
         private const AdditionalCanvasShaderChannels RequiredChannels =
             AdditionalCanvasShaderChannels.TexCoord1 |
             AdditionalCanvasShaderChannels.TexCoord2 |
-            AdditionalCanvasShaderChannels.TexCoord3 |
-            AdditionalCanvasShaderChannels.Normal |
-            AdditionalCanvasShaderChannels.Tangent;
+            AdditionalCanvasShaderChannels.TexCoord3;
 
         [SerializeField] private UiBlendMode _blendMode = UiBlendMode.Normal;
 
@@ -395,19 +393,28 @@ namespace TimboJimbo.UI
             // this box's own reduced by its inset, then CSS-clamped exactly as the shader would.
             ResolveGeometry(drawn, out var radiiCss, out var curvature01);
 
-            // Shader order: (TR, BR, TL, BL).
-            var radii = new Vector4(radiiCss.y, radiiCss.z, radiiCss.x, radiiCss.w);
+            // Everything travels in texcoords, which the canvas passes through as written (it transforms a normal
+            // or tangent by the box's rotation and scale). The radii go as fractions of the short side, which no
+            // clamped radius exceeds, two to a float in shader order (TR, BR) and (TL, BL); the gradient stops fill
+            // the rest (see UiPacking.PackStopsForTexcoords).
+            var shortSide = Mathf.Min(drawn.width, drawn.height);
+            var perShortSide = shortSide > 0f ? 1f / shortSide : 0f;
+            var stops = UiPacking.PackStopsForTexcoords(_gradientFrom, _gradientVia, _gradientTo);
+            var radiiAndStops = new Vector4(
+                UiPacking.PackPair12(radiiCss.y * perShortSide, radiiCss.z * perShortSide),
+                UiPacking.PackPair12(radiiCss.x * perShortSide, radiiCss.w * perShortSide),
+                stops.z,
+                stops.w);
 
             var parameters = new Vector4(
                 blur,
                 _strokeWidth,
-                curvature01 * CornerShapeExtensions.LastShapeIndex,
-                UiPacking.PackModeAndAngle(gradientEnabled, _gradientMode, _gradientAngle));
+                UiPacking.PackPair12(curvature01, _gradientViaPosition),
+                UiPacking.PackGradientHeader(gradientEnabled, _gradientMode, _gradientUseVia, _gradientAngle));
 
             // Graphic.color is the tint on the colour channel: it multiplies the whole gradient and picks up
-            // the CanvasGroup alpha the renderer applies there. The stops travel packed in normal/tangent.
+            // the CanvasGroup alpha the renderer applies there.
             Color32 tint = maskOnly ? (Color32)Color.white : (Color32)color;
-            UiPacking.PackStops(_gradientFrom, _gradientVia, _gradientTo, _gradientUseVia, _gradientViaPosition, out var normal, out var tangent);
 
             vh.Clear();
             AddCorner(-1f, -1f);
@@ -427,12 +434,12 @@ namespace TimboJimbo.UI
                 vh.AddVert(
                     position,
                     tint,
-                    new Vector4((signX + 1f) * 0.5f, (signY + 1f) * 0.5f, 0f, 0f),
+                    new Vector4((signX + 1f) * 0.5f, (signY + 1f) * 0.5f, stops.x, stops.y),
                     new Vector4(halfSize.x, halfSize.y, sample.x, sample.y),
-                    radii,
+                    radiiAndStops,
                     parameters,
-                    normal,
-                    tangent);
+                    Vector3.back,
+                    new Vector4(1f, 0f, 0f, -1f));
             }
         }
 

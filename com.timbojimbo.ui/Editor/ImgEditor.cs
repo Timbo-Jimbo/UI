@@ -39,7 +39,6 @@ namespace TimboJimboEditor.UI
         private SerializedProperty _tileSpacing;
         private SerializedProperty _tileStagger;
         private SerializedProperty _tileOffset;
-        private SerializedProperty _tilePan;
 
         private SerializedProperty _blendMode;
         private SerializedProperty _colorBlendMode;
@@ -69,7 +68,6 @@ namespace TimboJimboEditor.UI
             _tileSpacing = serializedObject.FindProperty("_tileSpacing");
             _tileStagger = serializedObject.FindProperty("_tileStagger");
             _tileOffset = serializedObject.FindProperty("_tileOffset");
-            _tilePan = serializedObject.FindProperty("_tilePan");
 
             _blendMode = serializedObject.FindProperty("_blendMode");
             _colorBlendMode = serializedObject.FindProperty("_colorBlendMode");
@@ -219,8 +217,7 @@ namespace TimboJimboEditor.UI
                             EditorGUILayout.PropertyField(_tileGridRotation, new GUIContent("Rotation", "Degrees, counter-clockwise about the rect centre. Moves the placement points only; the stamps keep their own rotation."));
                             EditorGUILayout.PropertyField(_tileSpacing, new GUIContent("Spacing", "Distance between placement points per axis, in canvas units (at most 8× the sprite size). 0 = the sprite size, edge to edge. Less than the sprite size cuts each stamp off at its cell."));
                             EditorGUILayout.PropertyField(_tileStagger, new GUIContent("Stagger", "X shifts each successive row along x, Y each successive column along y, as a fraction of the spacing. (0.5, 0) is a brick pattern."));
-                            EditorGUILayout.PropertyField(_tileOffset, new GUIContent("Offset", "Shifts the grid along its own axes, in canvas units; wraps every cell."));
-                            EditorGUILayout.PropertyField(_tilePan, new GUIContent("Pan", "Scrolls the grid along its own axes, in canvas units per second, on shader time (no mesh rebuild). Changing the rate re-phases the pattern; animate Offset for a controlled slide."));
+                            EditorGUILayout.PropertyField(_tileOffset, new GUIContent("Offset", "Shifts the grid along its own axes, in canvas units; wraps every cell. Animate it to scroll the grid."));
                         }
                         if (target is Img { hasBorder: true })
                             EditorGUILayout.HelpBox("Tiled ignores the sprite border and tiles the whole sprite. Use Sliced for a 9-slice frame.", MessageType.None);

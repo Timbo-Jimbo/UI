@@ -10,6 +10,8 @@ namespace TimboJimbo.UI
     /// only rewrites the vertices Image generates so the shader can evaluate the gradient per pixel across the
     /// rect, and swaps the material for the package's shared per-blend-mode one. The gradient multiplies into
     /// the sprite exactly as <see cref="Graphic.color"/> does, and that colour still tints the whole result.
+    /// Its gradient has two stops, not Box's three: every parameter travels in texcoords (a normal or tangent
+    /// would be scrambled by the canvas when the image is rotated or scaled), and they have no room for a third.
     /// </summary>
     [AddComponentMenu("Timbo Jimbo/UI/Img")]
     [RequireComponent(typeof(CanvasRenderer))]
@@ -31,9 +33,7 @@ namespace TimboJimbo.UI
         private const AdditionalCanvasShaderChannels RequiredChannels =
             AdditionalCanvasShaderChannels.TexCoord1 |
             AdditionalCanvasShaderChannels.TexCoord2 |
-            AdditionalCanvasShaderChannels.TexCoord3 |
-            AdditionalCanvasShaderChannels.Normal |
-            AdditionalCanvasShaderChannels.Tangent;
+            AdditionalCanvasShaderChannels.TexCoord3;
 
         /// <summary>Extra quad padding beyond the blur radius so the soft edge has room for its last tap.</summary>
         private const float BlurPadding = 1f;
@@ -65,21 +65,14 @@ namespace TimboJimbo.UI
         [SerializeField] private Vector2 _tileSpacing;
         [SerializeField] private Vector2 _tileStagger;
         [SerializeField] private Vector2 _tileOffset;
-        [SerializeField] private Vector2 _tilePan;
 
         /// <summary>Largest spacing, as a multiple of the sprite size, the packed vertex data can carry. Mirrors TILE_SPACING_RANGE in Img.shader.</summary>
         private const float TileSpacingRangeSprites = 8f;
 
-        /// <summary>Largest pan rate, in periods per second, the packed vertex data can carry. Mirrors TILE_PAN_RANGE in Img.shader.</summary>
-        private const float TilePanRangePeriods = 8f;
-
         [SerializeField] private bool _gradientEnabled;
         [SerializeField] private ColorInterpolationMode _gradientMode = ColorInterpolationMode.OkLab;
-        [SerializeField] private bool _gradientUseVia;
         [SerializeField] private Color _gradientFrom = Color.white;
-        [SerializeField] private Color _gradientVia = new(0.5f, 0.5f, 0.5f, 1f);
         [SerializeField] private Color _gradientTo = Color.black;
-        [SerializeField, Range(0f, 1f)] private float _gradientViaPosition = 0.5f;
         [SerializeField] private float _gradientAngle;
 
         /// <summary>
@@ -242,7 +235,7 @@ namespace TimboJimbo.UI
             }
         }
 
-        /// <summary>Tiled type: shifts the grid along its own axes, in canvas units; wraps every period.</summary>
+        /// <summary>Tiled type: shifts the grid along its own axes, in canvas units; wraps every period. Animate it to scroll the grid.</summary>
         public Vector2 TileOffset
         {
             get => _tileOffset;
@@ -255,25 +248,9 @@ namespace TimboJimbo.UI
         }
 
         /// <summary>
-        /// Tiled type: scrolls the grid along its own axes, in canvas units per second, driven by shader time
-        /// so no mesh is rebuilt while it moves (at most 8 periods per second). Changing the rate re-phases the
-        /// pattern, so animate <see cref="TileOffset"/> instead for a controlled slide.
-        /// </summary>
-        public Vector2 TilePan
-        {
-            get => _tilePan;
-            set
-            {
-                if (_tilePan == value) return;
-                _tilePan = value;
-                SetVerticesDirty();
-            }
-        }
-
-        /// <summary>
-        /// When true the sprite is tinted by a three-stop gradient (from → via → to) across the rect instead
-        /// of a flat colour. The stops carry their own colour and alpha, and <see cref="Graphic.color"/>
-        /// multiplies the whole gradient as a tint, so colour changes and CanvasGroup fades apply to every stop.
+        /// When true the sprite is tinted by a two-stop gradient (from → to) across the rect instead of a flat
+        /// colour. The stops carry their own colour and alpha, and <see cref="Graphic.color"/> multiplies the
+        /// whole gradient as a tint, so colour changes and CanvasGroup fades apply to every stop.
         /// </summary>
         public bool GradientEnabled
         {
@@ -298,18 +275,6 @@ namespace TimboJimbo.UI
             }
         }
 
-        /// <summary>When false the via stop is ignored and the gradient runs straight from → to.</summary>
-        public bool GradientUseVia
-        {
-            get => _gradientUseVia;
-            set
-            {
-                if (_gradientUseVia == value) return;
-                _gradientUseVia = value;
-                SetVerticesDirty();
-            }
-        }
-
         /// <summary>Start stop of the gradient.</summary>
         public Color GradientFrom
         {
@@ -322,18 +287,6 @@ namespace TimboJimbo.UI
             }
         }
 
-        /// <summary>Middle stop of the gradient, placed at <see cref="GradientViaPosition"/>.</summary>
-        public Color GradientVia
-        {
-            get => _gradientVia;
-            set
-            {
-                if (_gradientVia == value) return;
-                _gradientVia = value;
-                SetVerticesDirty();
-            }
-        }
-
         /// <summary>End stop of the gradient.</summary>
         public Color GradientTo
         {
@@ -342,19 +295,6 @@ namespace TimboJimbo.UI
             {
                 if (_gradientTo == value) return;
                 _gradientTo = value;
-                SetVerticesDirty();
-            }
-        }
-
-        /// <summary>Position of the via stop along the gradient, 0 at the from end and 1 at the to end.</summary>
-        public float GradientViaPosition
-        {
-            get => _gradientViaPosition;
-            set
-            {
-                value = Mathf.Clamp01(value);
-                if (Mathf.Approximately(_gradientViaPosition, value)) return;
-                _gradientViaPosition = value;
                 SetVerticesDirty();
             }
         }
@@ -467,8 +407,6 @@ namespace TimboJimbo.UI
             else
                 base.OnPopulateMesh(vh);
 
-            UiPacking.PackStops(_gradientFrom, _gradientVia, _gradientTo, _gradientUseVia, _gradientViaPosition, out var normal, out var tangent);
-
             // The shader must not sample neighbouring sprites in an atlas, so it gets the sprite's UV bounds:
             // every sample is kept half a texel inside them and blur taps outside them read as transparent.
             var bounds = drawnSprite != null ? UnityEngine.Sprites.DataUtility.GetOuterUV(drawnSprite) : new Vector4(0f, 0f, 1f, 1f);
@@ -483,36 +421,36 @@ namespace TimboJimbo.UI
             ComputeBlur(uvPerUnit, texelSize, out var blurTaps, out var tapSpacing);
 
             // The tiled layout is packed relative to the sprite so it is scale-free: spacing as a multiple of
-            // the sprite size, offset and pan as a fraction of the spacing (a pan of one spacing per second
-            // moves one cell per second), stagger as a fraction of the spacing. The two rotations share a
+            // the sprite size, offset and stagger as a fraction of the spacing. The two rotations share a
             // float. See Img.shader for the decode.
-            var tilePacked = Vector4.zero;   // rotPair, spacingPair, offPair, panPair
-            var stagger = Vector2.zero;
+            var tilePacked = Vector4.zero;   // rotPair, spacingPair, offPair, staggerPair
             if (tiled)
             {
                 var spacing01 = new Vector2(
                     Mathf.Clamp01((_tileSpacing.x > 0f ? _tileSpacing.x : tileSize.x) / (tileSize.x * TileSpacingRangeSprites)),
                     Mathf.Clamp01((_tileSpacing.y > 0f ? _tileSpacing.y : tileSize.y) / (tileSize.y * TileSpacingRangeSprites)));
                 var period = Vector2.Max(Vector2.Scale(spacing01, tileSize) * TileSpacingRangeSprites, new Vector2(1e-3f, 1e-3f));
-                stagger = new Vector2(Mathf.Repeat(_tileStagger.x, 1f), Mathf.Repeat(_tileStagger.y, 1f));
                 tilePacked = new Vector4(
                     UiPacking.PackPair12(Mathf.Repeat(_tileGridRotation / 360f, 1f), Mathf.Repeat(_tileSpriteRotation / 360f, 1f)),
                     UiPacking.PackPair12(spacing01.x, spacing01.y),
                     UiPacking.PackPair12(Mathf.Repeat(_tileOffset.x / period.x, 1f), Mathf.Repeat(_tileOffset.y / period.y, 1f)),
-                    UiPacking.PackPair12(
-                        (Mathf.Clamp(_tilePan.x / period.x, -TilePanRangePeriods, TilePanRangePeriods) / TilePanRangePeriods + 1f) * 0.5f,
-                        (Mathf.Clamp(_tilePan.y / period.y, -TilePanRangePeriods, TilePanRangePeriods) / TilePanRangePeriods + 1f) * 0.5f));
+                    UiPacking.PackPair12(Mathf.Repeat(_tileStagger.x, 1f), Mathf.Repeat(_tileStagger.y, 1f)));
             }
 
-            // Channel layout (see the contract at the top of Img.shader). Small integers ride with a 0..1
-            // fraction in one float (UiPacking.PackIntAndFraction): the header folds the gradient mode, blur
-            // taps, flags and colour blend mode around the gradient angle; the blend factor shares a float
-            // with the stagger. Tiled quads keep their corner in uv0.xy (the shader derives the position from
-            // it) so uv1.zw is free for tile data. No extra vertex channels, so every variation still shares
-            // one material.
+            // Channel layout (see the contract at the top of Img.shader). Everything travels in texcoords, which
+            // the canvas passes through as written; it transforms a normal or tangent by the image's rotation
+            // and scale, which would scramble anything packed there. Small integers ride with a 0..1 fraction in
+            // one float (UiPacking.PackIntAndFraction): the header folds the gradient mode, blur taps, flags and
+            // colour blend mode around the gradient angle. Each stop's RGB takes a float and their alphas share
+            // one with the blend factor. No extra vertex channels, so every variation still shares one material.
             var header = UiPacking.PackImgHeader(_gradientEnabled, _gradientMode, blurTaps, _blurJitter, tiled, _colorBlendMode, _gradientAngle);
-            var factorAndStagger = UiPacking.PackTriple8(_colorBlendFactor, stagger.x, stagger.y);
+            var effects = new Vector4(
+                header,
+                UiPacking.PackTriple8(_gradientFrom.r, _gradientFrom.g, _gradientFrom.b),
+                UiPacking.PackTriple8(_gradientTo.r, _gradientTo.g, _gradientTo.b),
+                UiPacking.PackTriple8(_gradientFrom.a, _gradientTo.a, _colorBlendFactor));
             var spacingCanvas = blurTaps > 0 ? _blurRadius / blurTaps : 0f;
+            var spacingUv = UiPacking.PackLogPair12(tapSpacing.x, tapSpacing.y);
 
             if (blurTaps > 0 && drawnSprite != null && type == Type.Simple && !useSpriteMesh && vh.currentVertCount == 4)
                 ExpandSimpleQuad(vh, _blurRadius + BlurPadding, uvPerUnit);
@@ -522,29 +460,29 @@ namespace TimboJimbo.UI
             {
                 vh.PopulateUIVertex(ref vertex, i);
                 var sample = (Vector2)vertex.position - center;
+                // A tiled quad is the rect, so its corners' rect-centred positions are ± the half size, which the
+                // shader takes from their magnitude; that leaves uv0 for the tile data.
                 vertex.uv0 = tiled
-                    ? new Vector4(vertex.uv0.x, vertex.uv0.y, tileSize.x, spacingCanvas)
-                    : new Vector4(vertex.uv0.x, vertex.uv0.y, tapSpacing.x, tapSpacing.y);
+                    ? new Vector4(tileSize.x, spacingCanvas, tilePacked.z, tilePacked.w)
+                    : new Vector4(vertex.uv0.x, vertex.uv0.y, spacingUv, 0f);
                 vertex.uv1 = tiled
-                    ? new Vector4(halfSize.x, halfSize.y, tilePacked.x, tilePacked.y)
+                    ? new Vector4(sample.x, sample.y, tilePacked.x, tilePacked.y)
                     : new Vector4(halfSize.x, halfSize.y, sample.x, sample.y);
-                vertex.uv2 = new Vector4(header, tilePacked.z, tilePacked.w, factorAndStagger);
+                vertex.uv2 = effects;
                 vertex.uv3 = bounds;
-                vertex.normal = normal;
-                vertex.tangent = tangent;
                 vh.SetUIVertex(vertex, i);
             }
         }
 
-        // One quad over the rect, in Image's vertex order (BL, TL, TR, BR), with the corner (0/1) in uv0.xy.
+        // One quad over the rect, in Image's vertex order (BL, TL, TR, BR); its texcoords are filled in after.
         private void BuildRectQuad(VertexHelper vh, Rect rect)
         {
             Color32 tint = color;
             vh.Clear();
-            vh.AddVert(new Vector3(rect.xMin, rect.yMin), tint, new Vector4(0f, 0f));
-            vh.AddVert(new Vector3(rect.xMin, rect.yMax), tint, new Vector4(0f, 1f));
-            vh.AddVert(new Vector3(rect.xMax, rect.yMax), tint, new Vector4(1f, 1f));
-            vh.AddVert(new Vector3(rect.xMax, rect.yMin), tint, new Vector4(1f, 0f));
+            vh.AddVert(new Vector3(rect.xMin, rect.yMin), tint, Vector4.zero);
+            vh.AddVert(new Vector3(rect.xMin, rect.yMax), tint, Vector4.zero);
+            vh.AddVert(new Vector3(rect.xMax, rect.yMax), tint, Vector4.zero);
+            vh.AddVert(new Vector3(rect.xMax, rect.yMin), tint, Vector4.zero);
             vh.AddTriangle(0, 1, 2);
             vh.AddTriangle(2, 3, 0);
         }
