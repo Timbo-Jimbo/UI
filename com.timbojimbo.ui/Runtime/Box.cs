@@ -342,11 +342,13 @@ namespace TimboJimbo.UI
         }
 
         // Two of the three roles (shadow, border) are decorative, so opt in to raycasts rather than out.
+        #if UNITY_EDITOR
         protected override void Reset()
         {
             base.Reset();
             raycastTarget = false;
         }
+        #endif
 
         /// <summary>
         /// Adds, configures or removes the <see cref="Mask"/> component so it matches <see cref="Masking"/>. The
