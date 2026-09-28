@@ -24,6 +24,8 @@ namespace TimboJimbo.UI
         // With the UI Layout package present an Img is a LayoutNode's content directly: its sprite's size.
         Vector2 TimboJimbo.UI.Layout.ILayoutMeasurable.Measure(float availableWidth) => new(preferredWidth, preferredHeight);
         float TimboJimbo.UI.Layout.ILayoutMeasurable.MinWidth => 0f;
+        // A picture stretches with its rect as it springs to a new size, rather than being laid out at that size.
+        void TimboJimbo.UI.Layout.ILayoutMeasurable.Arrange(Vector2 size) { }
 #endif
 
         /// <summary>Base name of the shared materials in the package Resources folder; the blend mode adds a suffix.</summary>
