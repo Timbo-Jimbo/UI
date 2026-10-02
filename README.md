@@ -1,6 +1,18 @@
 # Timbo Jimbo - UI
 
-Additional UGUI components.
+UI for UGUI in one package: components that draw, a layout engine whose nodes move on springs, and variants switched in place.
+
+📐 **Layout**
+
+A layout engine modelled on [Clay](https://github.com/nicbarker/clay): fit, grow and fixed sizing, wrapping and grids, floating, the safe area, and scrolling as a UIScrollView's. See [Layout](#layout).
+
+🌀 **Motion**
+
+Every change made inside `MotionSystem.Animate` springs from where things are drawn, as SwiftUI's `withAnimation`: layout, show and hide effects, matched names that fly between places, and values of your own. See [Motion](#motion).
+
+🎛️ **Variants**
+
+Looks kept inside a prefab and switched in place (Success, Warning, Error), recorded by editing, previewed without saving, driven by states and breakpoints, and passed down the hierarchy. See [Variants](#variants).
 
 🟦 **Box**
 
@@ -211,6 +223,154 @@ Set **Blend Mode** on the component (or `BlendMode` in code) to choose how a box
 - **Screen** — always lightens.
 
 Every element of a given component and mode shares one material and batches together; switching to a different mode moves it to that mode's material, which is a separate draw call. When authoring a material by hand, the Box and Img material inspectors show the same Blend Mode dropdown.
+
+# Layout
+
+Layout for UGUI, modelled on [Clay](https://github.com/nicbarker/clay) and moved like SwiftUI. A layout pass says where every node goes; nodes get there on springs, from where they are drawn and at the velocity they have.
+
+## Nodes
+
+Add a `LayoutNode` to a RectTransform. A node whose parent is not a node is a root: it keeps the rect it is given and lays its children out inside it. The system owns every other node's RectTransform.
+
+```csharp
+var row = gameObject.AddComponent<LayoutNode>();
+row.Direction = LayoutDirection.LeftToRight;
+row.Width = Sizing.Grow();
+row.Height = Sizing.Fit();
+row.ChildGap = 12f;
+row.Padding = Insets.All(16f);
+row.ChildAlignY = AlignY.Center;
+```
+
+- **Sizing** per axis: `Fit` (its content, with an optional min and max), `Grow` (a share of what is left), `Fixed`, or `Percent` of its parent. `AspectRatio` sets the height from the width.
+- **Wrap** breaks the children into lines, `ChildGap` apart, as CSS's flex-wrap and SwiftUI's lazy grids: `Wrap.Lines` as text wraps (tags), `Wrap.Grid(3)` in lines of three equal cells, `Wrap.Adaptive(120f)` in as many cells at least 120 long as fit. Lines and Adaptive wrap left to right; a Grid either way (a shelf of two rows that scrolls sideways).
+- **Content**: a component on the node implementing `ILayoutMeasurable` is its content, measured at the width it gets and told the size it is going to. `Img` is one, and the UI Text package's `TextBlock`.
+- **Floating** takes a node out of the flow and places it against its parent, its root, or any other node in its tree (`FloatingAttach.Element`), following that node as it moves and scrolls.
+- **Display**: `Hidden` keeps a node's space, `None` takes it out of layout.
+- **Offset**, **Scale** and **Opacity** move, scale and fade a node without taking space, for gestures.
+
+## Safe area
+
+As in SwiftUI, a root keeps its content clear of the notch, rounded corners and home bar (`Screen.safeArea`) on the edges its `SafeArea` names, all of them by default, adding as much as it covers to its padding; its own background still fills the screen. A node with `IgnoresSafeArea` reaches back out to the screen's edge where it lies against the safe area, its padding growing by as much, so what is inside stays clear:
+
+```csharp
+header.IgnoresSafeArea = Edges.Top | Edges.Left | Edges.Right; // its colour under the notch, its title below it
+list.IgnoresSafeArea = Edges.Bottom;                            // rows scroll under the home bar, and rest above it
+```
+
+A node floating against the root sits inside the safe area. The Game view's safe area is the whole screen: the Simulator shows a phone's.
+
+## Animated changes
+
+A change made inside `MotionSystem.Animate` moves every node it gives somewhere new on springs ([Motion](#motion)); any other change goes there at once.
+
+```csharp
+var snappy = MotionAnimation.Default.Use(MotionAnimationPreset.Snappy);
+MotionSystem.Animate(snappy, () =>
+{
+    panel.Width = Sizing.Fixed(480f);
+    badge.Display = DisplayMode.Visible;
+}).Finished += () => Debug.Log("landed");
+```
+
+- A node's `Animation` overrides the change's for the node and everything inside it, as SwiftUI's `.transaction`: a device that turns at once (None) around an app that springs (its own). Left on Inherit, a node moves on the nearest one above it, or else on the change's. `LayoutSystem.AnimationOf(node)` says which.
+- Nodes turn from where they are when a change interrupts them. `Fling` throws a node with a velocity, `Catch` stops it where it is drawn, and `Velocity` reads how fast it is moving.
+
+## Show and hide
+
+A node shown or hidden inside `Animate` plays its `DisplayEffect`: fading, shrinking and sliding past an edge of its parent, together, the same both ways. A hidden node is drawn until it has gone, and the change finishes then. `ShownChanged` hands the shown value to effects of your own.
+
+## Names
+
+Nodes with the same `MatchName` (and `MatchId`, set in code and inherited from above) pair up inside `Animate`:
+
+- One shown as another is hidden **takes over** from where that one is drawn and flies to its own place, the two cross-fading: a cell zooming into the page it opens.
+- One shown or hidden next to one that **stays shown grows out of it** and shrinks back into it: a dropdown's list out of its button.
+
+`MatchFit` says how a matched node fills the rect it moves through, as CSS's `object-fit`. `MatchWidth`, the default as on the web, keeps it at its own size and scales it, as a picture of itself, evenly to that rect's width; `Fill`, `Contain` and `Cover` scale it to the rect exactly, to fit inside it or to cover it; `Resize` changes the rect's size instead, its content laid out at its own size. `MatchClip` cuts both halves to that rect while they fly. The node taking over decides for the pair: its fit, its clip, and the animation both halves move on, so an `Animation` given to one end plays the way a pair is taken over to it.
+
+Pairs and nodes moved to a new parent inside `Animate` fly above everything, out of every clip, until they land.
+
+## Scrolling
+
+Set a node's `Scroll` and it clips its children and scrolls them, with drags, flicks, rubber banding, the wheel and touch to stop, as a UIScrollView.
+
+- `ScrollOffset`, `ScrollTo` and `ScrollIntoView` scroll from code, on a spring inside `Animate`. `Scrolled` reports the offset.
+- `ScrollAnchor` End keeps a chat or a log at its end as it grows.
+- `ScrollSnap` rests on whole pages or on its children, one per flick, as UIKit's paging and SwiftUI's view-aligned scrolling.
+- Scroll indicators show while it scrolls and fade out after, as on iOS (`ShowsScrollIndicators`, `ScrollIndicatorColor`).
+- Nested lists pass a drag on from the inner one to the outer, as UIKit chains them. An `ILayoutDraggable` (a sheet's height, a card's pull) takes part too: offered each move before the lists inside it, or, with `PassOnMidDrag` false, given whole drags when the lists have no room.
+
+# Motion
+
+Changes made on springs, as SwiftUI's `withAnimation`: what a change moves sets off from where it is drawn, at the velocity it has, and the change says when everything it moved has landed. Layout and variants move with it.
+
+- **Changes:** `MotionSystem.Animate` makes the change its update makes, and moves what it changes on springs. A change carries an animation, its own or the default; what it moves can have its own instead, such as a layout node's `Animation`. A change made inside another's update joins that one.
+- **Springs as SwiftUI gives them:** a `MotionAnimation` is a perceptual duration and a bounce, with a delay, and a curvature that bows a move across the screen out sideways. The presets are Smooth, Snappy, Bouncy, Arc and None. A duration of 0 (None) is no animation: what moves is there at once, after its delay. Springs are stepped exactly, in closed form, so they play the same at any frame rate, and turn from where they are, at the speed they have, when a change gives them somewhere new to go.
+- **Knowing when it lands:** the returned `MotionTransition` raises `Finished` once everything the change moved has landed or been taken over. `Completed` says whether it got there without being interrupted, and `Skip` puts everything where it was going. It carries type names, and `interactive: false` lets the pointer through what it moves until it lands.
+- **Your own values:** a value you draw yourself (a colour, a radius, up to four numbers) moves with the change being made through `MotionSystem.AnimateValue`, and the change waits for it. `MotionSystem.Current` is the change being made, while `Animate`'s update runs.
+- **UI time:** springs step once a frame, just before canvases are drawn, on unscaled time, so UI moves in a pause menu. In edit mode nothing animates.
+
+```csharp
+var snappy = MotionAnimation.Default.Use(MotionAnimationPreset.Snappy);
+MotionSystem.Animate(snappy, () =>
+{
+    panel.Width = Sizing.Fixed(480f);                                                // a layout node springs to its new size
+    MotionSystem.AnimateValue(this, "tint", Tint, Color.red, snappy, v => Tint = v);  // and a value of your own with it
+}).Finished += () => Debug.Log("landed");
+```
+
+What a change moves is worked out once its update has run, so part of an update can't be given an animation of its own: a change made inside another joins it, on the outer change's animation.
+
+# Variants
+
+Variants that live inside a prefab and switch in place: prefab variants, if one instance could be any of them.
+
+🎛️ **Variant Set**
+
+A component on a prefab's root. Its variants come in groups that are set independently: a toast's **Type** (Success, Warning, Error) and its **Size** (Compact). Each group is on **Inherit** (as new groups are), **Default**, the prefab as it is, or one of its variants. Where two groups set the same value, the later one wins.
+
+🧩 **Anything Serialized**
+
+A variant is a set of values on objects under the set: colours, sprites, text, numbers, references, whether an object is active, even a field inside a struct (a button's normal colour). Values are written through each component's own property (`m_Color` through `color`, `_cornerRadii` through `CornerRadii`), so graphics redraw and layouts update as they would from code.
+
+⏺️ **Record by Editing**
+
+Select a variant and press **Record**. Edits to anything under the set, in the inspector or the scene view, go into the variant instead of the prefab. Undo works. Right-click any property to add it to the selected variant, or take it out.
+
+👁️ **Preview Without Saving**
+
+The selected variants show in the scene and in prefab mode through AnimationMode, the way the Animation window previews a clip. Scenes and prefabs keep and save their default values, so switching variants never dirties a prefab or leaves overrides behind. An instance can start on a variant: select it on the instance, and it shows that way in the editor.
+
+🌀 **Animated**
+
+A group marked **Animated** (as new groups are) animates wherever it's switched from: code, a button, a state, a breakpoint. It's SwiftUI's `.animation(_:value:)`, on the group's **Animation**: Inherit for the default, or a preset of its own, such as a quick, snappy spring for a hover. The layout a switch changes springs, and colours and other numbers move on the spring of the layout node they're drawn in. A layout node with an Animation of its own keeps it. Text, sprites and active states change at once. To hide something animatedly, set its node's Display rather than its active state. Any switch made inside `MotionSystem.Animate` animates too, and joins that change.
+
+🖱️ **Interaction States**
+
+**Variant States** selects a variant as the pointer hovers and presses, as keyboard or gamepad navigation focuses, and while it's disabled. It works on any object with a raycast target, so custom hover effects and custom buttons work as well as UGUI controls. One state shows at a time, Disabled first, then Pressed, Focused and Hover, as UIKit's and Selectable's do. Pressed drops when a touch drags out. A Selectable on the same object that isn't interactable disables it, and its own transition is left alone (set it to None).
+
+📐 **Breakpoints**
+
+**Variant Breakpoints** selects a variant by the size its object is drawn at, like CSS container queries and Tailwind's breakpoints, mobile first: Default below every breakpoint. It measures width, height or aspect ratio; orientation is an aspect breakpoint at 1. The editor previews the variant for the size it's drawn at, without saving it.
+
+🌳 **Inherited**
+
+A group on **Inherit** shows what the nearest set above it with a group of the same name shows, like SwiftUI's environment or UIKit's dark mode passing down the hierarchy. Author a badge as a prefab of its own with a Type group, put it in a toast, and it shows the toast's Type: Error there, Error here. A name it has no variant of shows Default, and still passes down. Selecting Default or a variant overrides Inherit for that set and everything under it. The inspector says where an inherited variant comes from. A switch passes down inside the same change, so everything moves together. A group that Variant States or Variant Breakpoints drive selects for itself, so breakpoints on an app's root drive the parts inside it. Where a set and one inside it both set a value, the outer one wins, as an outer prefab's overrides do.
+
+```csharp
+toast.Set("Type", "Error");   // or toast.Set("Error"): the first group with a variant of that name
+toast.Clear("Type");          // back to Inherit: Default, unless a set above has a Type
+card.Toggle("Expanded");      // on, or back to Inherit when it's on already
+toast.Changed += set => Debug.Log(set.Get("Type"));  // what it shows, inherited or its own
+```
+
+Limits:
+
+- A variant sets values; it does not add, remove or move objects.
+- Array elements (a list's items, an event's listeners) can't be recorded.
+- Runtime writes go through reflection, cached per type and property. With aggressive managed code stripping, a property only a variant uses could be stripped; keep it with a `link.xml`.
+- The preview shares AnimationMode with the Animation window and Timeline, and waits while either is previewing.
 
 # AI Usage Disclosure
 

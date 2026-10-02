@@ -15,18 +15,13 @@ namespace TimboJimbo.UI
     /// </summary>
     [AddComponentMenu("Timbo Jimbo/UI/Img")]
     [RequireComponent(typeof(CanvasRenderer))]
-    public sealed class Img : Image
-#if TJ_UI_LAYOUT
-        , TimboJimbo.UI.Layout.ILayoutMeasurable
-#endif
+    public sealed class Img : Image, Layout.ILayoutMeasurable
     {
-#if TJ_UI_LAYOUT
-        // With the UI Layout package present an Img is a LayoutNode's content directly: its sprite's size.
-        Vector2 TimboJimbo.UI.Layout.ILayoutMeasurable.Measure(float availableWidth) => new(preferredWidth, preferredHeight);
-        float TimboJimbo.UI.Layout.ILayoutMeasurable.MinWidth => 0f;
+        // An Img is a LayoutNode's content directly: its sprite's size.
+        Vector2 Layout.ILayoutMeasurable.Measure(float availableWidth) => new(preferredWidth, preferredHeight);
+        float Layout.ILayoutMeasurable.MinWidth => 0f;
         // A picture stretches with its rect as it springs to a new size, rather than being laid out at that size.
-        void TimboJimbo.UI.Layout.ILayoutMeasurable.Arrange(Vector2 size) { }
-#endif
+        void Layout.ILayoutMeasurable.Arrange(Vector2 size) { }
 
         /// <summary>Base name of the shared materials in the package Resources folder; the blend mode adds a suffix.</summary>
         public const string MaterialName = "Img";

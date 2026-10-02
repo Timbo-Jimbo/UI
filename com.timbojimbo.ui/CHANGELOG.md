@@ -1,4 +1,17 @@
-## [Unreleased]
+## [0.3.0] - 02/10/2026
+
+UI Layout, Motion and Variants are part of this package, which now holds everything for building UI with UGUI.
+
+### Added
+
+- Layout (from UI Layout 0.5.0, `TimboJimbo.UI.Layout`): `LayoutNode`, a layout engine modelled on Clay: fit, grow, fixed and percent sizing, aspect ratios, wrapping and grids, floating against a parent, a root or another node, the safe area, show and hide effects (`DisplayEffect`), matched names that hand over or grow out of one another (`MatchName`, `MatchFit`, `MatchClip`), flights above every clip, and scrolling as a UIScrollView's (flicks, rubber banding, paging, snapping, anchors, indicators, nested drags, `ILayoutDraggable`). A node's `Animation` overrides a change's for the node and everything inside it, Inherit by default; `LayoutSystem.AnimationOf` says what a node moves on
+- Motion (from Motion 0.1.0, `TimboJimbo.UI.Motion`): `MotionSystem.Animate`, as SwiftUI's withAnimation, moving what a change changes on springs from where it is drawn, with an animation of its own or the default; `MotionAnimation` (duration, bounce, curvature, delay; Smooth, Snappy, Bouncy, Arc and None presets, None no animation); `MotionTransition` (`Finished`, `Completed`, `Skip`, types, `Interactive`); `MotionSystem.AnimateValue` for values drawn by hand; `MotionSystem.Current`
+- Variants (from Variants 0.2.0, `TimboJimbo.UI.Variants`): `VariantSet`, looks kept inside a prefab and switched in place, setting any serialized value, recorded by editing, previewed without saving; groups on Inherit, passed down the hierarchy by name; animated switches on a group's own animation; `VariantStates` for hover, press, focus and disabled on any object; `VariantBreakpoints` by drawn width, height or aspect ratio
+
+### Changed
+
+- One runtime assembly, `TimboJimbo.UI.Runtime`, and one editor assembly, `TimboJimboEditor.UI`, hold all of it; the UI Layout, Motion and Variants packages and their assemblies are gone
+- `Img` is a layout node's content always (`ILayoutMeasurable`), not only with the UI Layout package installed (`TJ_UI_LAYOUT` is gone)
 
 ## [0.2.0] - 01/10/2026
 
