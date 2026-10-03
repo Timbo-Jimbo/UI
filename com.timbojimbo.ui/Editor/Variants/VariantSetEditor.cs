@@ -24,10 +24,8 @@ namespace TimboJimboEditor.UI.Variants
         private static readonly GUIContent s_inherit = new(InheritLabel,
             "Show what the nearest variant set above with a group of this name shows (Default with none), as its parts follow a toast's Type.");
         private static readonly GUIContent s_addVariant = new("+", "Add a variant to this group.");
-        private static readonly GUIContent s_animated = new("Animated",
-            "Switching this group animates, wherever it is switched from: its layout springs, and its values move on the springs of the layout nodes they are drawn in.");
         private static readonly GUIContent s_animation = new("Animation",
-            "What an animated switch is made on, unless a layout node it moves (or one above it) has an Animation of its own. Inherit: the default.");
+            "What switching this group is animated on, wherever it is switched from: its layout springs, and its values move with the layout nodes they are drawn in, unless a node has an Animation of its own. Inherit: the default. None: at once.");
         private static readonly GUIContent s_menu = new("⋮", "More");
         private static readonly GUIContent s_remove = new("×", "Take this value out of the variant: it keeps its default here.");
         private static readonly Color s_recordColor = new(1f, 0.45f, 0.45f);
@@ -81,14 +79,11 @@ namespace TimboJimboEditor.UI.Variants
                 string renamed = EditorGUILayout.DelayedTextField(name.stringValue, s_groupName);
                 if (EditorGUI.EndChangeCheck() && renamed.Trim().Length > 0)
                     name.stringValue = renamed.Trim();
-                var animated = group.FindPropertyRelative("_animated");
-                animated.boolValue = EditorGUILayout.ToggleLeft(s_animated, animated.boolValue, GUILayout.Width(76));
                 if (GUILayout.Button(s_menu, EditorStyles.miniButton, GUILayout.Width(22)))
                     GroupMenu(g, groups.arraySize);
             }
-            // What an animated switch is made on: Inherit for the default, or a preset of its own.
-            if (group.FindPropertyRelative("_animated").boolValue)
-                EditorGUILayout.PropertyField(group.FindPropertyRelative("_animation"), s_animation);
+            // What a switch is animated on: Inherit for the default, None for at once, or a preset of its own.
+            EditorGUILayout.PropertyField(group.FindPropertyRelative("_animation"), s_animation);
 
             Shown(g);
 
@@ -144,7 +139,7 @@ namespace TimboJimboEditor.UI.Variants
             if (Application.isPlaying)
             {
                 if (!group.Inherits || Set.Above(group.Name, out _) is not { } above) return;
-                variant = Set.Get(group.Name);
+                variant = Set.Shown(g);
                 by = $"{above.name}'s {group.Name}";
             }
             else if (!VariantPreview.TryGetDriven(Set, g, out variant, out by))
@@ -304,7 +299,6 @@ namespace TimboJimboEditor.UI.Variants
             group.FindPropertyRelative("_name").stringValue = Unique("Group", names.ToList());
             group.FindPropertyRelative("_selected").stringValue = "";
             group.FindPropertyRelative("_inherit").boolValue = true;
-            group.FindPropertyRelative("_animated").boolValue = true;
             group.FindPropertyRelative("_animation").FindPropertyRelative("_set").boolValue = false;
             group.FindPropertyRelative("_variants").ClearArray();
         }

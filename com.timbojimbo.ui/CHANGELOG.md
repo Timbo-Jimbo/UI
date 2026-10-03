@@ -1,3 +1,11 @@
+## [Unreleased]
+
+### Changed
+
+- `VariantGroup.Animated` and its toggle are gone: a group always switches inside a change on its `Animation` (Inherit for the default, None for at once), as a layout change does, where a node with an Animation of its own keeps it
+- `VariantStates` shows Focused only when it was selected by keyboard or gamepad navigation, or by code, not by a click, as CSS's `:focus-visible`
+- `VariantSet.Get` returns Default for a name a group inherits that it has no variant of, as it shows; the name still passes down
+
 ## [0.3.0] - 02/10/2026
 
 UI Layout, Motion and Variants are part of this package, which now holds everything for building UI with UGUI.

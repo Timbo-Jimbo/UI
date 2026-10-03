@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using TimboJimbo.UI.Layout;
 using TimboJimbo.UI.Motion;
 using UnityEngine;
+using UnityEngine.Pool;
 using Object = UnityEngine.Object;
 
 namespace TimboJimbo.UI.Variants
@@ -18,12 +19,11 @@ namespace TimboJimbo.UI.Variants
     /// In the editor the selection is previewed and never saved: scenes and prefabs keep their default values, and the
     /// inspector records a variant by editing the objects while it is selected. In play mode a variant set applies its
     /// selection when it wakes and whenever <see cref="Set(string, string)"/> changes it. It notes each value's default the
-    /// first time it applies, and puts that back when nothing selected sets it. A group that is
-    /// <see cref="VariantGroup.Animated"/> (as groups are, unless turned off) switches inside
+    /// first time it applies, and puts that back when nothing selected sets it. A group switches inside
     /// <see cref="MotionSystem.Animate(MotionAnimation, Action, string[])"/> on its <see cref="VariantGroup.Animation"/>
     /// wherever it is switched from, as SwiftUI's .animation(_:value:), so what the switch changes moves (see
-    /// <see cref="VariantMotion"/>); any switch made inside a change joins it. <see cref="VariantStates"/> and <see cref="VariantBreakpoints"/> switch a group from
-    /// the pointer and from the size of what they are on.
+    /// <see cref="VariantMotion"/>); any switch made inside a change joins it. <see cref="VariantStates"/> and
+    /// <see cref="VariantBreakpoints"/> switch a group from the pointer and from the size of what they are on.
     /// </summary>
     [DisallowMultipleComponent]
     [AddComponentMenu("Timbo Jimbo/Variants/Variant Set")]
@@ -64,12 +64,14 @@ namespace TimboJimbo.UI.Variants
         /// <summary>
         /// The variant <paramref name="group"/> shows: its name, or empty for Default (and for no such group). It is the
         /// group's own selection, or while it <see cref="VariantGroup.Inherits"/>, what the nearest set above it with a
-        /// group of that name shows.
+        /// group of that name shows; a name it inherits that it has no variant of shows Default.
         /// </summary>
         public string Get(string group)
         {
             int index = IndexOfGroup(group);
-            return index < 0 ? "" : Shown(index);
+            if (index < 0) return "";
+            string shown = Shown(index);
+            return _groups[index].IndexOf(shown) >= 0 ? shown : "";
         }
 
         /// <summary>
@@ -116,13 +118,12 @@ namespace TimboJimbo.UI.Variants
         }
 
         /// <summary>
-        /// Puts every group back on Inherit, animated if any group whose look it changes is, on the animation of the first
-        /// that is.
+        /// Puts every group back on Inherit, on the animation of the first group whose look it changes.
         /// </summary>
         public void ClearAll()
         {
-            bool changed = false, moved = false;
-            VariantGroup animated = null;
+            bool changed = false;
+            VariantGroup moved = null;
             for (int g = 0; g < _groups.Count; g++)
             {
                 var group = _groups[g];
@@ -131,14 +132,12 @@ namespace TimboJimbo.UI.Variants
                 string shown = Shown(g);
                 group.Inherits = true;
                 group.Selected = "";
-                if (Shown(g) == shown) continue;
-                moved = true;
-                if (animated == null && group.Animated)
-                    animated = group;
+                if (moved == null && Shown(g) != shown)
+                    moved = group;
             }
             if (!changed) return;
-            if (moved && Application.isPlaying)
-                Switch(animated);
+            if (moved != null && Application.isPlaying)
+                Switch(moved);
             Notify();
         }
 
@@ -184,7 +183,7 @@ namespace TimboJimbo.UI.Variants
             target.Inherits = inherit;
             target.Selected = variant;
             if (apply && Shown(group) != shown)
-                Switch(target.Animated ? target : null);
+                Switch(target);
             Notify();
         }
 
@@ -214,26 +213,25 @@ namespace TimboJimbo.UI.Variants
             return null;
         }
 
-        // Applies a change of selection, and passes it down to the sets under it that inherit it: for an `animated` group
-        // (null for none), inside MotionSystem.Animate on that group's animation, so what it changes moves, theirs too; a
-        // switch made inside a change already joins that one, either way.
-        private void Switch(VariantGroup animated)
-        {
-            if (animated != null)
-                MotionSystem.Animate(animated.Animation ?? MotionAnimation.Default, ApplyAndPassDown);
-            else
-                ApplyAndPassDown();
-        }
+        // Applies a change of `group`'s selection, and passes it down to the sets under it that inherit it, inside
+        // MotionSystem.Animate on the group's animation, so what it changes moves, theirs too (at once on None); a switch
+        // made inside a change joins that one.
+        private void Switch(VariantGroup group) =>
+            MotionSystem.Animate(group.Animation ?? MotionAnimation.Default, ApplyAndPassDown);
 
         // The sets under it take up what they inherit first (each reads it from the selections above it, not from what
         // was applied), so where one of them sets a value this one sets too, this one's lands last and wins, as an outer
         // prefab's overrides do and as the editor shows it.
         private void ApplyAndPassDown()
         {
-            foreach (var below in GetComponentsInChildren<VariantSet>(true))
+            using (ListPool<VariantSet>.Get(out var sets))
             {
-                if (below != this)
-                    below.Refresh();
+                GetComponentsInChildren(true, sets);
+                foreach (var below in sets)
+                {
+                    if (below != this)
+                        below.Refresh();
+                }
             }
             Apply();
         }

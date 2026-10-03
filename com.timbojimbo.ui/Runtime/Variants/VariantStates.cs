@@ -6,7 +6,8 @@ namespace TimboJimbo.UI.Variants
 {
     /// <summary>
     /// Selects a variant of a group by how the pointer and selection treat its object: Hover, Pressed, Focused (selected
-    /// by keyboard or gamepad navigation) and Disabled, for a custom hover effect or a custom button as much as a UGUI
+    /// by keyboard or gamepad navigation, or by code, but not by a click, as CSS's :focus-visible) and Disabled, for a
+    /// custom hover effect or a custom button as much as a UGUI
     /// control. One state shows at a time, as UIKit's and Selectable's do: Disabled, then Pressed, then Focused, then
     /// Hover, else Default; a state given no variant passes to the next one that holds. Pressed holds while the press is
     /// down and the pointer is still over it, as UIKit's highlight drops when a touch drags out. Disabled is its own
@@ -32,7 +33,7 @@ namespace TimboJimbo.UI.Variants
         [Tooltip("The variant while a press on it is down and the pointer still over it; empty for none.")]
         [SerializeField] private string _pressed = "Pressed";
 
-        [Tooltip("The variant while it is selected by keyboard or gamepad navigation (the EventSystem's selected object); empty for none.")]
+        [Tooltip("The variant while it is selected by keyboard or gamepad navigation, or by code (the EventSystem's selected object), but not by a click, as CSS's :focus-visible; empty for none.")]
         [SerializeField] private string _focused = "Focused";
 
         [Tooltip("The variant while it is not interactable; empty for Default.")]
@@ -129,9 +130,11 @@ namespace TimboJimbo.UI.Variants
             Refresh();
         }
 
+        // Focused only when selected other than by a press, as CSS's :focus-visible: keyboard or gamepad navigation, or
+        // code. A Selectable pressed selects itself with the press's event data; it is focused, but shows no ring.
         public void OnSelect(BaseEventData eventData)
         {
-            _focus = true;
+            _focus = eventData is not PointerEventData;
             Refresh();
         }
 
@@ -157,7 +160,7 @@ namespace TimboJimbo.UI.Variants
                 target.Set(_group, variant);
         }
 
-        private string Pick(VariantGroup group)
+        internal string Pick(VariantGroup group)
         {
             if (IsDisabled)
                 return Has(group, _disabled) ? _disabled : "";

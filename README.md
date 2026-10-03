@@ -344,11 +344,11 @@ The selected variants show in the scene and in prefab mode through AnimationMode
 
 🌀 **Animated**
 
-A group marked **Animated** (as new groups are) animates wherever it's switched from: code, a button, a state, a breakpoint. It's SwiftUI's `.animation(_:value:)`, on the group's **Animation**: Inherit for the default, or a preset of its own, such as a quick, snappy spring for a hover. The layout a switch changes springs, and colours and other numbers move on the spring of the layout node they're drawn in. A layout node with an Animation of its own keeps it. Text, sprites and active states change at once. To hide something animatedly, set its node's Display rather than its active state. Any switch made inside `MotionSystem.Animate` animates too, and joins that change.
+A switch animates wherever it's made from: code, a button, a state, a breakpoint. It's SwiftUI's `.animation(_:value:)`, on the group's **Animation**: Inherit for the default, None for at once, or a preset of its own, such as a quick, snappy spring for a hover. The layout a switch changes springs, and colours and other numbers move on the spring of the layout node they're drawn in. A layout node with an Animation of its own keeps it. Text, sprites and active states change at once. To hide something animatedly, set its node's Display rather than its active state. Any switch made inside `MotionSystem.Animate` animates too, and joins that change.
 
 🖱️ **Interaction States**
 
-**Variant States** selects a variant as the pointer hovers and presses, as keyboard or gamepad navigation focuses, and while it's disabled. It works on any object with a raycast target, so custom hover effects and custom buttons work as well as UGUI controls. One state shows at a time, Disabled first, then Pressed, Focused and Hover, as UIKit's and Selectable's do. Pressed drops when a touch drags out. A Selectable on the same object that isn't interactable disables it, and its own transition is left alone (set it to None).
+**Variant States** selects a variant as the pointer hovers and presses, as keyboard or gamepad navigation focuses (not a click, as CSS's `:focus-visible`), and while it's disabled. It works on any object with a raycast target, so custom hover effects and custom buttons work as well as UGUI controls. One state shows at a time, Disabled first, then Pressed, Focused and Hover, as UIKit's and Selectable's do. Pressed drops when a touch drags out. A Selectable on the same object that isn't interactable disables it, and its own transition is left alone (set it to None).
 
 📐 **Breakpoints**
 

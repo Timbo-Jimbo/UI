@@ -1,0 +1,22 @@
+{
+    "name": "TimboJimboTests.UI.PlayMode",
+    "rootNamespace": "TimboJimboTests.UI.PlayMode",
+    "references": [
+        "TimboJimbo.UI.Runtime",
+        "UnityEngine.UI",
+        "UnityEngine.TestRunner"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

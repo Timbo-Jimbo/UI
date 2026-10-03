@@ -78,10 +78,7 @@ namespace TimboJimbo.UI.Variants
         [Tooltip("Shows what the nearest variant set above it with a group of this name shows (Default with none), rather than a selection of its own.")]
         [SerializeField] private bool _inherit;
 
-        [Tooltip("Switching it animates, wherever it is switched from (code, a button, a breakpoint), as SwiftUI's .animation(value:): the layout it changes springs, and its values move on the springs of the layout nodes they are drawn in. A switch made inside MotionSystem.Animate animates either way.")]
-        [SerializeField] private bool _animated = true;
-
-        [Tooltip("The animation an animated switch is made on, as SwiftUI's .animation(_:value:): what it moves goes on this, unless a layout node it moves (or one above it) has an Animation of its own. Inherit: the default.")]
+        [Tooltip("What switching it is animated on, wherever it is switched from (code, a button, a breakpoint), as SwiftUI's .animation(_:value:): the layout it changes springs, and its values move with the layout nodes they are drawn in, unless a node has an Animation of its own. Inherit: the default. None: at once. A switch made inside another change joins that one.")]
         [SerializeField] private OptionalMotionAnimation _animation = new(null);
 
         [SerializeField] private List<Variant> _variants = new();
@@ -116,16 +113,12 @@ namespace TimboJimbo.UI.Variants
         public bool Inherits { get => _inherit; internal set => _inherit = value; }
 
         /// <summary>
-        /// Whether switching it animates, wherever it is switched from, as SwiftUI's <c>.animation(value:)</c>: the
-        /// switch is made inside <see cref="MotionSystem.Animate(MotionAnimation, Action, string[])"/>, on
-        /// <see cref="Animation"/>. One made inside a change joins it, either way, on that change's animation.
-        /// </summary>
-        public bool Animated { get => _animated; set => _animated = value; }
-
-        /// <summary>
-        /// The animation an <see cref="Animated"/> switch is made on, as SwiftUI's <c>.animation(_:value:)</c>: a
-        /// hover's quick spring, say. What the switch moves goes on it, unless a layout node it moves (or one above
-        /// that) has an Animation of its own. Null (the default) switches on <see cref="MotionAnimation.Default"/>.
+        /// What switching it is animated on, wherever it is switched from, as SwiftUI's <c>.animation(_:value:)</c>: the
+        /// switch is made inside <see cref="MotionSystem.Animate(MotionAnimation, Action, string[])"/> on it (a hover's
+        /// quick spring, say), and what it moves goes on it, unless a layout node it moves (or one above that) has an
+        /// Animation of its own, as in any change. Null (the default) switches on <see cref="MotionAnimation.Default"/>;
+        /// <see cref="MotionAnimationPreset.None"/>, at once. A switch made inside another change joins that one, on its
+        /// animation.
         /// </summary>
         public MotionAnimation? Animation { get => _animation.Value; set => _animation = new OptionalMotionAnimation(value); }
 
