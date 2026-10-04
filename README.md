@@ -14,6 +14,10 @@ Every change made inside `MotionSystem.Animate` springs from where things are dr
 
 Looks kept inside a prefab and switched in place (Success, Warning, Error), recorded by editing, previewed without saving, driven by states and breakpoints, and passed down the hierarchy. See [Variants](#variants).
 
+🎮 **Focus**
+
+Keyboard and gamepad focus that only lands on what can be seen and used, moves by where things are drawn, stays inside a modal sheet, comes back when what had it goes, follows Tab, routes Cancel and Android's Back, and draws an indicator that flies to what has focus, only after keyboard or gamepad input. See [Focus](#focus).
+
 🟦 **Box**
 
 A `Graphic` that draws a rounded box as a signed distance field: per-corner radii, a continuous corner curvature (circle → parabola → cosine → cubic), an inset stroke, a blur radius and an offset. One instance is one effect, so a panel, its drop shadow and its border are three sibling objects.
@@ -348,7 +352,7 @@ A switch animates wherever it's made from: code, a button, a state, a breakpoint
 
 🖱️ **Interaction States**
 
-**Variant States** selects a variant as the pointer hovers and presses, as keyboard or gamepad navigation focuses (not a click, as CSS's `:focus-visible`), and while it's disabled. It works on any object with a raycast target, so custom hover effects and custom buttons work as well as UGUI controls. One state shows at a time, Disabled first, then Pressed, Focused and Hover, as UIKit's and Selectable's do. Pressed drops when a touch drags out. A Selectable on the same object that isn't interactable disables it, and its own transition is left alone (set it to None).
+**Variant States** selects a variant as the pointer hovers and presses, as it takes focus while focus shows (after keyboard or gamepad input, not a click: `FocusSystem.FocusVisible`), and while it's disabled. It works on any object with a raycast target, so custom hover effects and custom buttons work as well as UGUI controls. One state shows at a time, Disabled first, then Pressed, Focused and Hover, as UIKit's and Selectable's do. Pressed drops when a touch drags out. A Selectable on the same object that isn't interactable disables it, and its own transition is left alone (set it to None).
 
 📐 **Breakpoints**
 
@@ -371,6 +375,38 @@ Limits:
 - Array elements (a list's items, an event's listeners) can't be recorded.
 - Runtime writes go through reflection, cached per type and property. With aggressive managed code stripping, a property only a variant uses could be stripped; keep it with a `link.xml`.
 - The preview shares AnimationMode with the Animation window and Timeline, and waits while either is previewing.
+
+# Focus
+
+Keyboard and gamepad focus over UGUI's Selectables. They still do the selecting, and the input module's Navigate, Submit and Cancel still drive them; `FocusSystem` adds the parts UGUI leaves out, once a frame, with nothing to set up:
+
+- **Only what can be used takes focus:** shown, not on its way out, taking the pointer, and inside the topmost modal. Arrows never land on a hidden page or under a backdrop.
+- **Moves by where things are drawn:** a Selectable left on Automatic navigation is pointed at its neighbours, what lies in line with it first, then the nearest. When several are equally near (up from a wide row into a row of tabs), focus goes back to the one its scope last focused, else the scope's Default Focus, else the first in reading order. Explicit and None navigation are left as authored, and a slider or scrollbar keeps its own axis for changing its value.
+- **Comes back:** when what has focus is hidden, disabled or destroyed, focus goes back where it belongs. Navigating with nothing focused puts focus somewhere first.
+- **Tab and Shift-Tab** go through reading order.
+- **Scrolls into view:** what takes focus is scrolled into view in every scroll container it's in.
+- **Shows only when it should:** `FocusSystem.FocusVisible` is on after keyboard or gamepad input and off after a click or a touch, as CSS's `:focus-visible`. Variant States' Focused follows it.
+- **Wakes before it moves:** while focus doesn't show, the first direction (or Tab) only shows it, on what has it, brought into view. Nothing moves until the next press: what has focus may have changed unseen, with the pointer.
+
+A **Focus Scope** groups part of the UI:
+
+- **Section** (as a sidebar, a list or a tab bar): focus moves in and out of it freely, landing on whatever is nearest the way you pressed, as SwiftUI's `focusSection`. Its **Default Focus** is where focus goes when what had it inside goes.
+- **Enter At**: where focus coming in from outside lands. **Nearest** (the default) is whatever is nearest the way you pressed, right for lists side by side. **Last Focused Or Default** is what it last focused, else its default: its **Default Focus**, else its first item in reading order (top left). That's for something focus comes into as a whole and back to where it left, as UIKit's preferred focus and `remembersLastFocusedIndexPath`: a page beside its sidebar, the sidebar, a tab bar. A modal always takes focus this way as it appears.
+- **Modal** (as a sheet): nothing outside it can be focused while it's active. It takes focus as it appears and gives it back as it goes, as UIKit restores focus after a modal transition.
+- **Takes Cancel**: Escape, a gamepad's B, or Android's Back raises its **Cancelled** event while focus is inside it, for closing a sheet or going back.
+- **New Indicator**: it has a focus indicator of its own, drawn on what has focus inside it while focus shows. See below.
+
+## Focus indicator
+
+A scope with **New Indicator** makes its indicator from **Indicator Prefab**, a prefab whose root is a Layout Node, the first time it shows. It's made as the last child of **Indicator Parent** (the scope's own object when empty), so it draws over what's there, and it's attached to what has focus (Attach To Element; the prefab's points and offset stay as they are). It springs from one focused element to the next on its own Animation, and appears and goes with its own Display Effect. A move that finds nothing to go to nudges it that way, and it springs back.
+
+Scopes inside it without New Indicator use its indicator. A scope with New Indicator but no prefab uses the prefab of the nearest one above it, so one prefab on a scope at the top of the screen styles them all. Where an indicator lives decides what clips it: one made inside a scroll container is cut at its edges as the items are.
+
+When focus moves from one indicator's scope into another's, the first leaves where it is and the second appears where focus lands, rather than flying across the screen. Motion stays inside a group, and the indicator appearing anew shows where a group starts.
+
+Elements can still style their own focus (Variant States' Focused) alongside it. The prefab's graphics shouldn't take the pointer.
+
+The package depends on the Input System for this.
 
 # AI Usage Disclosure
 

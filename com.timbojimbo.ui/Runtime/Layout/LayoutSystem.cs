@@ -274,6 +274,14 @@ namespace TimboJimbo.UI.Layout
             return Mathf.Sign(stretched) * (limit / RubberBandCoefficient * over / (limit - over));
         }
 
+        // ── For Focus ────────────────────────────────────────────────────────────
+
+        // Whether what is drawn in `node` can take focus (FocusSystem): the node shown, down through everything above it,
+        // not on its way out, and taking the pointer as it was last drawn. No node, or one the system does not have (a
+        // disabled one), does not stop it.
+        internal static bool Focusable(LayoutNode node) =>
+            node == null || !s_states.TryGetValue(node, out var state) || (state.PassShown && !state.PassLeaving && !state.PassBlocked);
+
         // ── For LayoutNode ───────────────────────────────────────────────────────
 
         internal static void Register(LayoutNode node)

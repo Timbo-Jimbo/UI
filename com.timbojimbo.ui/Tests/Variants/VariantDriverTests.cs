@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using NUnit.Framework;
+using TimboJimbo.UI.Focus;
 using TimboJimbo.UI.Variants;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -18,6 +19,7 @@ namespace TimboJimboTests.UI.Variants
             foreach (var created in _created)
                 if (created != null) Object.DestroyImmediate(created);
             _created.Clear();
+            FocusSystem.SetVisible(false);
         }
 
         private VariantSet SetWith(string group, params string[] variants)
@@ -44,6 +46,7 @@ namespace TimboJimboTests.UI.Variants
             Assert.AreEqual("", states.Pick(group));
             states.OnPointerEnter(pointer);
             Assert.AreEqual("Hover", states.Pick(group));
+            FocusSystem.SetVisible(true);
             states.OnSelect(new BaseEventData(null));
             Assert.AreEqual("Focused", states.Pick(group));
             states.OnPointerDown(pointer);
@@ -56,7 +59,7 @@ namespace TimboJimboTests.UI.Variants
         }
 
         [Test]
-        public void AClickIsNotFocus()
+        public void FocusedShowsOnlyWhileFocusShows()
         {
             var set = SetWith("State", "Hover", "Focused");
             var group = set.Groups[0];
@@ -64,9 +67,13 @@ namespace TimboJimboTests.UI.Variants
             states.Setup(set, "State", "Hover", "", "Focused", "");
             var pointer = new PointerEventData(null);
 
+            // Selected by a click: no ring.
             states.OnPointerEnter(pointer);
             states.OnSelect(pointer);
             Assert.AreEqual("Hover", states.Pick(group));
+            // Then a key: the ring.
+            FocusSystem.SetVisible(true);
+            Assert.AreEqual("Focused", states.Pick(group));
         }
 
         [Test]

@@ -1,3 +1,4 @@
+using TimboJimbo.UI.Focus;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -6,8 +7,8 @@ namespace TimboJimbo.UI.Variants
 {
     /// <summary>
     /// Selects a variant of a group by how the pointer and selection treat its object: Hover, Pressed, Focused (selected
-    /// by keyboard or gamepad navigation, or by code, but not by a click, as CSS's :focus-visible) and Disabled, for a
-    /// custom hover effect or a custom button as much as a UGUI
+    /// while focus shows, <see cref="FocusSystem.FocusVisible"/>: after keyboard or gamepad input, not after a click or a
+    /// touch, as CSS's :focus-visible) and Disabled, for a custom hover effect or a custom button as much as a UGUI
     /// control. One state shows at a time, as UIKit's and Selectable's do: Disabled, then Pressed, then Focused, then
     /// Hover, else Default; a state given no variant passes to the next one that holds. Pressed holds while the press is
     /// down and the pointer is still over it, as UIKit's highlight drops when a touch drags out. Disabled is its own
@@ -33,7 +34,7 @@ namespace TimboJimbo.UI.Variants
         [Tooltip("The variant while a press on it is down and the pointer still over it; empty for none.")]
         [SerializeField] private string _pressed = "Pressed";
 
-        [Tooltip("The variant while it is selected by keyboard or gamepad navigation, or by code (the EventSystem's selected object), but not by a click, as CSS's :focus-visible; empty for none.")]
+        [Tooltip("The variant while it is selected (the EventSystem's selected object) and focus shows: after keyboard or gamepad input, not after a click or a touch, as CSS's :focus-visible; empty for none.")]
         [SerializeField] private string _focused = "Focused";
 
         [Tooltip("The variant while it is not interactable; empty for Default.")]
@@ -84,12 +85,14 @@ namespace TimboJimbo.UI.Variants
         {
             TryGetComponent(out _selectable);
             _selectableInteractable = _selectable == null || _selectable.IsInteractable();
+            FocusSystem.FocusVisibleChanged += Refresh;
             Refresh();
         }
 
         // Gone, it is neither under the pointer nor pressed nor focused, and shows as it would at rest.
         private void OnDisable()
         {
+            FocusSystem.FocusVisibleChanged -= Refresh;
             _inside = _down = _focus = false;
             Refresh();
         }
@@ -130,11 +133,11 @@ namespace TimboJimbo.UI.Variants
             Refresh();
         }
 
-        // Focused only when selected other than by a press, as CSS's :focus-visible: keyboard or gamepad navigation, or
-        // code. A Selectable pressed selects itself with the press's event data; it is focused, but shows no ring.
+        // Selected; Focused shows while focus does (FocusSystem.FocusVisible), so a click selects without a ring, and the
+        // next key or gamepad press draws it.
         public void OnSelect(BaseEventData eventData)
         {
-            _focus = eventData is not PointerEventData;
+            _focus = true;
             Refresh();
         }
 
@@ -165,7 +168,7 @@ namespace TimboJimbo.UI.Variants
             if (IsDisabled)
                 return Has(group, _disabled) ? _disabled : "";
             if (_down && _inside && Has(group, _pressed)) return _pressed;
-            if (_focus && Has(group, _focused)) return _focused;
+            if (_focus && FocusSystem.FocusVisible && Has(group, _focused)) return _focused;
             if (_inside && Has(group, _hover)) return _hover;
             return "";
         }

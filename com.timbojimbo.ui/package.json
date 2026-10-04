@@ -7,7 +7,8 @@
 	"description": "UI for UGUI in one package: SDF rounded boxes and images with gradients, shadows and borders; a layout engine modelled on Clay, whose nodes move on springs with every change, as SwiftUI's withAnimation; and variants, looks kept inside a prefab and switched in place, passed down the hierarchy.",
 	"dependencies": {
 		"com.unity.ugui": "2.0.0",
-		"com.timbojimbo.core": "0.6.0"
+		"com.timbojimbo.core": "0.6.0",
+		"com.unity.inputsystem": "1.20.0"
 	},
 	"author": {
 		"name": "Timbo Jimbo",

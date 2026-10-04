@@ -3,7 +3,8 @@
     "rootNamespace": "TimboJimbo.UI",
     "references": [
         "UnityEngine.UI",
-        "TimboJimbo.Core.Runtime"
+        "TimboJimbo.Core.Runtime",
+        "Unity.InputSystem"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

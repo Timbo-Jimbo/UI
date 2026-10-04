@@ -1,9 +1,16 @@
 ## [Unreleased]
 
+### Added
+
+- Focus (`TimboJimbo.UI.Focus`): keyboard and gamepad focus over UGUI's Selectables, which still do the selecting. `FocusSystem` lets only what can be seen and used take focus (shown, not on its way out, taking the pointer, inside the topmost modal); steers Selectables left on Automatic navigation to their neighbours by where they are drawn, what lies in line first, and of several equally near, what their scope last focused, else its default, else the first in reading order; brings focus back when what had it is hidden, disabled or destroyed; moves through reading order with Tab and Shift-Tab; scrolls what takes focus into view; and says whether to draw focus (`FocusVisible`), as CSS's `:focus-visible`: after keyboard or gamepad input, not after a click or a touch. While focus doesn't show, the first direction or Tab only shows it where it is, moving nothing
+- `FocusScope`: a Section groups part of the UI that focus moves in and out of freely, landing on whatever is nearest, as SwiftUI's focusSection, or with `EnterAt` `LastFocusedOrDefault` on what it last focused, else its default (`DefaultFocus`, else its first in reading order), as UIKit's preferred focus and remembersLastFocusedIndexPath; a Modal keeps focus inside it, takes it as it appears and gives it back as it goes, as UIKit restores focus after a modal transition. A scope that takes Cancel (Escape, a gamepad's B, Android's Back) raises `Cancelled`
+- Focus indicators: a `FocusScope` with `NewIndicator` makes one from `IndicatorPrefab` (or the nearest scope above it's) as the last child of `IndicatorParent` (or itself), attached to what has focus inside it while focus shows. It springs from one focused element to the next on its own animation; moving into another indicator's scope hides it and shows that one where focus lands. A move that finds nothing to go to nudges it that way
+
 ### Changed
 
+- The package depends on the Input System (`com.unity.inputsystem` 1.20.0), which Focus reads Tab, Cancel and the kind of input from
 - `VariantGroup.Animated` and its toggle are gone: a group always switches inside a change on its `Animation` (Inherit for the default, None for at once), as a layout change does, where a node with an Animation of its own keeps it
-- `VariantStates` shows Focused only when it was selected by keyboard or gamepad navigation, or by code, not by a click, as CSS's `:focus-visible`
+- `VariantStates` shows Focused while its object is selected and focus shows (`FocusSystem.FocusVisible`): after keyboard or gamepad input, not after a click or a touch, as CSS's `:focus-visible`
 - `VariantSet.Get` returns Default for a name a group inherits that it has no variant of, as it shows; the name still passes down
 
 ## [0.3.0] - 02/10/2026
