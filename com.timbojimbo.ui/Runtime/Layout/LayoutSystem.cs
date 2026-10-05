@@ -282,6 +282,11 @@ namespace TimboJimbo.UI.Layout
         internal static bool Focusable(LayoutNode node) =>
             node == null || !s_states.TryGetValue(node, out var state) || (state.PassShown && !state.PassLeaving && !state.PassBlocked);
 
+        // Whether what is drawn in `node` cannot take focus only for now: shown and staying, but taking no pointer while a
+        // change that is not interactive moves it (FocusSystem keeps focus on it until it lands).
+        internal static bool Waiting(LayoutNode node) =>
+            node != null && s_states.TryGetValue(node, out var state) && state.PassShown && !state.PassLeaving && state.PassBlocked;
+
         // ── For LayoutNode ───────────────────────────────────────────────────────
 
         internal static void Register(LayoutNode node)

@@ -23,6 +23,19 @@ namespace TimboJimbo.UI.Focus
         /// as UIKit restores focus after a modal transition. The most recently active modal wins.
         /// </summary>
         Modal,
+
+        /// <summary>
+        /// One focus stop until it is entered, as Xbox's focus engagement: Submit on it (Enter, a gamepad's A) enters it,
+        /// at what it last focused, else its default; inside, focus cannot leave it, and Back (Escape, a gamepad's B) leaves
+        /// it, focus going back to its stop. Groups nest: inside one, a group in it is a stop of its own. A click on
+        /// something in it enters it, and every group around it. It has an indicator of its own
+        /// (<see cref="FocusScope.NewIndicator"/> or not), and while focus is inside it, the indicator on its stop stays
+        /// there, dimmed, saying where focus is. Its stop is the Selectable it is entered through
+        /// (<see cref="FocusScope.EnterThrough"/>), somewhere else, such as a sidebar's button for its page; else its own
+        /// Selectable, or a plain one added as it is enabled, with no navigation of its own (so a click on the group's
+        /// background does not select it).
+        /// </summary>
+        Group,
     }
 
     /// <summary>Where keyboard or gamepad navigation coming into a <see cref="FocusScope"/> from outside lands.</summary>
@@ -42,9 +55,9 @@ namespace TimboJimbo.UI.Focus
 
     /// <summary>
     /// A part of the UI that focus treats as one (see <see cref="FocusSystem"/>): a section, which focus moves in and out
-    /// of freely, or a modal that keeps focus inside it. It covers the Selectables under
-    /// it, remembers the last of them focused, and can take Cancel (Escape, a gamepad's B, Android's Back). It is active
-    /// while it is enabled and what it is drawn in is shown, not on its way out, and taking the pointer.
+    /// of freely; a modal that keeps focus inside it; or a group, one stop until it is entered. It covers the Selectables
+    /// under it, remembers the last of them focused, and can take Cancel (Escape, a gamepad's B, Android's Back). It is
+    /// active while it is enabled and what it is drawn in is shown, not on its way out, and taking the pointer.
     /// With <see cref="NewIndicator"/> it has a focus indicator of its own, shown on what has focus inside it (see
     /// <see cref="FocusSystem"/>); without, focus inside it shows the indicator of the scope around it.
     /// </summary>
@@ -52,22 +65,25 @@ namespace TimboJimbo.UI.Focus
     [DisallowMultipleComponent]
     public sealed class FocusScope : MonoBehaviour
     {
-        [Tooltip("Section: focus moves in and out of it freely, by where things are drawn. Modal: nothing outside it can be focused while it is active; it takes focus as it appears and gives it back as it goes.")]
+        [Tooltip("Section: focus moves in and out of it freely, by where things are drawn. Modal: nothing outside it can be focused while it is active; it takes focus as it appears and gives it back as it goes. Group: one stop until Submit enters it; Back leaves it.")]
         [SerializeField] private FocusScopeKind _kind = FocusScopeKind.Section;
 
-        [Tooltip("What it focuses when it takes focus (a modal appearing, or focus coming back to it as what had it inside goes) and has nothing remembered: none for its first Selectable in reading order.")]
+        [Tooltip("What it focuses when it takes focus (a modal appearing, a group entered, or focus coming back to it as what had it inside goes) and has nothing remembered: none for its first Selectable in reading order.")]
         [SerializeField] private Selectable _defaultFocus;
 
-        [Tooltip("Whether Cancel (Escape, a gamepad's B, Android's Back) stops here, raising Cancelled, while focus is inside it (or, for a modal, while it is the topmost one). Off, Cancel goes on to the scope around it.")]
+        [Tooltip("Whether Cancel (Escape, a gamepad's B, Android's Back) stops here, raising Cancelled, while focus is inside it (or, for a modal, while it is the topmost one). Off, Cancel goes on to the scope around it. A group focus is inside is left first.")]
         [SerializeField] private bool _takesCancel;
 
         [Tooltip("Raised by Cancel, when it takes Cancel: close the sheet, go back.")]
         [SerializeField] private UnityEvent _cancelled = new();
 
-        [Tooltip("Where navigation coming into it from outside lands. Nearest: whatever is nearest the way it moves (lists side by side). Last Focused Or Default: what it last focused, else its Default Focus, else its first in reading order (a page beside its sidebar, the sidebar, a tab bar). A modal always takes focus so as it appears.")]
+        [Tooltip("With a group: the Selectable it is entered through, somewhere else (a sidebar's button for its page), which is its focus stop. None for its own object.")]
+        [SerializeField] private Selectable _enterThrough;
+
+        [Tooltip("Where navigation coming into it from outside lands. Nearest: whatever is nearest the way it moves (lists side by side). Last Focused Or Default: what it last focused, else its Default Focus, else its first in reading order (a page beside its sidebar, the sidebar, a tab bar). A modal always takes focus so as it appears, and a group as it is entered.")]
         [SerializeField] private FocusScopeEntry _enterAt = FocusScopeEntry.Nearest;
 
-        [Tooltip("Whether it has a focus indicator of its own, shown on what has focus inside it, rather than the one of the scope around it. Focus moving into it hides the other indicator and shows this one where focus lands, rather than flying across.")]
+        [Tooltip("Whether it has a focus indicator of its own, shown on what has focus inside it, rather than the one of the scope around it. Focus moving into it hides the other indicator and shows this one where focus lands, rather than flying across. A group always has one.")]
         [SerializeField] private bool _newIndicator;
 
         [Tooltip("With an indicator of its own, what it is made from: a prefab whose root is a layout node, attached to what has focus. None for the prefab of the nearest scope above it with one.")]
@@ -76,17 +92,26 @@ namespace TimboJimbo.UI.Focus
         [Tooltip("With an indicator of its own, the node it is made in, as its last child: where it is drawn and what clips it. None for this scope's own object.")]
         [SerializeField] private LayoutNode _indicatorParent;
 
-        public FocusScopeKind Kind { get => _kind; set => _kind = value; }
+        public FocusScopeKind Kind
+        {
+            get => _kind;
+            set
+            {
+                _kind = value;
+                if (isActiveAndEnabled)
+                    MakeStop();
+            }
+        }
 
         /// <summary>
-        /// What it focuses when it takes focus (a modal appearing, or focus coming back to it as what had it inside goes)
-        /// and has nothing remembered; null for its first in reading order.
+        /// What it focuses when it takes focus (a modal appearing, a group entered, or focus coming back to it as what had
+        /// it inside goes) and has nothing remembered; null for its first in reading order.
         /// </summary>
         public Selectable DefaultFocus { get => _defaultFocus; set => _defaultFocus = value; }
 
         /// <summary>
         /// Whether Cancel stops here, raising <see cref="Cancelled"/>, while focus is inside it, or for a modal while it is
-        /// the topmost; otherwise Cancel goes on to the scope around it.
+        /// the topmost; otherwise Cancel goes on to the scope around it. A group focus is inside is left first.
         /// </summary>
         public bool TakesCancel { get => _takesCancel; set => _takesCancel = value; }
 
@@ -97,15 +122,31 @@ namespace TimboJimbo.UI.Focus
         /// Whether it has a focus indicator of its own, shown on what has focus inside it (and in scopes inside it without
         /// one of their own), rather than the one of the scope around it. Focus moving between two indicators' scopes hides
         /// the one and shows the other where focus lands, rather than flying across: motion stays inside a group, and the
-        /// indicator appearing anew shows where one group ends.
+        /// indicator appearing anew shows where one group ends. A <see cref="FocusScopeKind.Group"/> always has one.
         /// </summary>
         public bool NewIndicator { get => _newIndicator; set => _newIndicator = value; }
+
+        /// <summary>
+        /// With a <see cref="FocusScopeKind.Group"/>, the Selectable it is entered through, somewhere else, which is its
+        /// focus stop: a sidebar's button for the page it shows. Submit on it enters the group, Back inside the group comes
+        /// back to it, and while focus is inside, the indicator on it stays there, dimmed. Null for its own object.
+        /// </summary>
+        public Selectable EnterThrough
+        {
+            get => _enterThrough;
+            set
+            {
+                _enterThrough = value;
+                if (isActiveAndEnabled)
+                    MakeStop();
+            }
+        }
 
         /// <summary>
         /// Where keyboard or gamepad navigation coming into it from outside lands: on whatever is nearest
         /// (<see cref="FocusScopeEntry.Nearest"/>, the default), or on what it last focused, else its default
         /// (<see cref="FocusScopeEntry.LastFocusedOrDefault"/>). A modal always takes focus at what it last focused, else
-        /// its default, as it appears.
+        /// its default, as it appears, and a group as it is entered.
         /// </summary>
         public FocusScopeEntry EnterAt { get => _enterAt; set => _enterAt = value; }
 
@@ -126,7 +167,10 @@ namespace TimboJimbo.UI.Focus
         /// </summary>
         public LayoutNode IndicatorParent { get => _indicatorParent; set => _indicatorParent = value; }
 
-        /// <summary>The last Selectable focused inside it, while there is one.</summary>
+        /// <summary>
+        /// The last Selectable focused inside it, while there is one: a group inside it counts as its stop while the group
+        /// itself has focus.
+        /// </summary>
         public Selectable Remembered { get; internal set; }
 
         /// <summary>
@@ -135,14 +179,25 @@ namespace TimboJimbo.UI.Focus
         /// </summary>
         public bool IsActive => Active;
 
+        /// <summary>Whether it is a group or a modal that focus is inside, entered.</summary>
+        public bool IsEntered => FocusSystem.IsEntered(this);
+
         // Whether it is active, as the last frame found it, and when it last became so (for stacking modals).
         internal bool Active;
         internal int ActiveSince;
 
-        // Its indicator, once made (NewIndicator).
+        // Its indicator, once made (NewIndicator, or a group).
         internal LayoutNode Indicator;
 
-        private void OnEnable() => FocusSystem.Register(this);
+        // A group's stop: the Selectable it is entered through, else its own Selectable or one it added.
+        internal Selectable Stop => _kind != FocusScopeKind.Group ? null : _enterThrough != null ? _enterThrough : _ownStop;
+        private Selectable _ownStop;
+
+        private void OnEnable()
+        {
+            MakeStop();
+            FocusSystem.Register(this);
+        }
 
         // Its indicator goes with it, made again from the prefab as it next shows.
         private void OnDisable()
@@ -151,6 +206,18 @@ namespace TimboJimbo.UI.Focus
             if (Indicator != null)
                 Destroy(Indicator.gameObject);
             Indicator = null;
+        }
+
+        // A group's own stop, when it is not entered through something else: its own Selectable, else a plain one, with no
+        // transition and no navigation of its own (so a click on the group's background does not select it; FocusSystem
+        // steers it while it has focus). Added in play mode only, so it is never saved.
+        private void MakeStop()
+        {
+            if (_kind != FocusScopeKind.Group || _enterThrough != null || _ownStop != null || !Application.isPlaying) return;
+            if (TryGetComponent(out _ownStop)) return;
+            _ownStop = gameObject.AddComponent<Selectable>();
+            _ownStop.transition = Selectable.Transition.None;
+            _ownStop.navigation = new Navigation { mode = Navigation.Mode.None };
         }
     }
 }
