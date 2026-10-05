@@ -8,9 +8,9 @@ using UnityEngine;
 namespace TimboJimboEditor.UI
 {
     /// <summary>
-    /// Draws the gradient fields shared by <see cref="TimboJimbo.UI.Box"/> and <see cref="TimboJimbo.UI.Img"/>.
-    /// Both components serialize the same field names, so one section serves both inspectors; Img has no via
-    /// stop, so the via controls show only where the fields exist. The stops are edited on a live preview bar:
+    /// Draws the gradient fields of a <see cref="TimboJimbo.UI.BoxLayer"/> (Gradient...) or an
+    /// <see cref="TimboJimbo.UI.Img"/> (_gradient...). They are named alike, so one section serves both inspectors; Img
+    /// has no via stop, so the via controls show only where the fields exist. The stops are edited on a live preview bar:
     /// chevrons for From, To and (when enabled) Via, dragged to reposition Via and clicked to open the colour
     /// picker. The preview evaluates the same interpolation the shader does.
     /// </summary>
@@ -44,16 +44,28 @@ namespace TimboJimboEditor.UI
 
         private static Texture2D s_checker;
 
+        /// <summary>The gradient fields of a component (Img's _gradientEnabled and so on).</summary>
         public GradientSection(SerializedObject serializedObject)
+            : this(name => serializedObject.FindProperty("_gradient" + name))
         {
-            _enabled = serializedObject.FindProperty("_gradientEnabled");
-            _mode = serializedObject.FindProperty("_gradientMode");
-            _useVia = serializedObject.FindProperty("_gradientUseVia");
-            _from = serializedObject.FindProperty("_gradientFrom");
-            _via = serializedObject.FindProperty("_gradientVia");
-            _to = serializedObject.FindProperty("_gradientTo");
-            _viaPosition = serializedObject.FindProperty("_gradientViaPosition");
-            _angle = serializedObject.FindProperty("_gradientAngle");
+        }
+
+        /// <summary>The gradient fields of a <see cref="TimboJimbo.UI.BoxLayer"/> (GradientEnabled and so on).</summary>
+        public GradientSection(SerializedProperty layer)
+            : this(name => layer.FindPropertyRelative("Gradient" + name))
+        {
+        }
+
+        private GradientSection(Func<string, SerializedProperty> find)
+        {
+            _enabled = find("Enabled");
+            _mode = find("Mode");
+            _useVia = find("UseVia");
+            _from = find("From");
+            _via = find("Via");
+            _to = find("To");
+            _viaPosition = find("ViaPosition");
+            _angle = find("Angle");
         }
 
         public void Draw()

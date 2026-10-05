@@ -2,9 +2,10 @@
 // stroke width, blur radius, and a three-stop gradient) arrives in vertex data so all Box instances share
 // one material and batch. All of it is in texcoords, which the canvas passes through as written; it
 // transforms a normal or tangent by the box's rotation and scale, which would scramble anything packed there.
+// Each of a Box's layers (shadow, fill, border) is its own quad with its own vertex data.
 //
 // Vertex contract (written by TimboJimbo.UI.Box; gradient fields per UiGradient.cginc):
-//   COLOR     = Graphic.color, the tint (8-bit; the renderer folds CanvasGroup alpha into it)
+//   COLOR     = the layer's colour times Graphic.color, the tint (8-bit; the renderer folds CanvasGroup alpha into it)
 //   TEXCOORD0 = (uv.x, uv.y, from RGB, via RGB)   a stop's RGB as three 8-bit integers in one float
 //   TEXCOORD1 = (halfSize.x, halfSize.y, samplePos.x, samplePos.y)
 //   TEXCOORD2 = (radii TR|BR, radii TL|BL, to RGB, alphas from|via|to)   radii as 12-bit fractions of the
@@ -93,7 +94,7 @@ Shader "TimboJimbo/UI/Box"
             struct v2f
             {
                 float4 vertex    : SV_POSITION;
-                float4 tint      : COLOR;       // Graphic.color * CanvasGroup alpha, framebuffer space
+                float4 tint      : COLOR;       // layer colour * Graphic.color * CanvasGroup alpha, framebuffer space
                 float2 texcoord  : TEXCOORD0;
                 float4 mask      : TEXCOORD1;
                 float4 box       : TEXCOORD2;   // halfSize.xy, samplePos.zw
@@ -272,7 +273,7 @@ Shader "TimboJimbo/UI/Box"
                 OUT.curvature = curvature01 * CORNER_CUBIC * (1.0 - toCircle);
                 OUT.sdfParams = v.params.xy;
 
-                // Graphic.color is the tint; it stays in framebuffer space and is applied after the gradient
+                // The layer's colour times Graphic.color is the tint; it stays in framebuffer space and is applied after the gradient
                 // is converted. Honour the project option that keeps UI vertex colours in gamma.
                 OUT.tint = v.color;
                 if (_UIVertexColorAlwaysGammaSpace && !IsGammaSpace())

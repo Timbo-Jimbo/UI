@@ -1,14 +1,16 @@
-using TimboJimbo.Core;
 using UnityEngine;
 using UnityEngine.UI;
 
 namespace TimboJimbo.UI
 {
     /// <summary>
-    /// Draws a rounded box as a signed distance field. One instance is one visual effect: corner radii alone
-    /// give a panel, a blur radius with a dark colour gives a drop shadow, and a stroke width gives a border.
-    /// Compose them as sibling objects sharing the same anchors. Every parameter travels in vertex data and
-    /// all instances share one material, so a shadow, panel and border still render as a single draw call.
+    /// Draws a rounded box as a signed distance field, in up to three layers drawn back to front: a
+    /// <see cref="Shadow"/>, a <see cref="Fill"/> and a <see cref="Border"/>. The box owns the shape (corner radii and
+    /// curvature, concentric corners, inset) and each layer paints it (see <see cref="BoxLayer"/>), so a card with a
+    /// drop shadow and a gradient border is one object. <see cref="Graphic.color"/> tints every layer. Every parameter
+    /// travels in vertex data and all boxes share one material per blend mode, so a box drawing all three layers is
+    /// still one draw call, and boxes batch with each other. Where more than one of a layer is needed, stack boxes as
+    /// separate objects.
     /// </summary>
     [AddComponentMenu("Timbo Jimbo/UI/Box")]
     [RequireComponent(typeof(CanvasRenderer))]
@@ -25,40 +27,38 @@ namespace TimboJimbo.UI
             AdditionalCanvasShaderChannels.TexCoord2 |
             AdditionalCanvasShaderChannels.TexCoord3;
 
+        // What a MaskOnly box draws in place of its layers: the plain shape, crisp and opaque white, so it writes a clean
+        // stencil.
+        private static readonly BoxLayer MaskShape = new(Color.white);
+
         [SerializeField] private UiBlendMode _blendMode = UiBlendMode.Normal;
 
         // Drives a Mask component on this object: None has none, DrawAndMask draws the box and masks children,
-        // MaskOnly masks children without drawing the box. In MaskOnly the box renders as an opaque white crisp
-        // shape (colour/gradient/blur ignored) so it writes a clean stencil.
+        // MaskOnly masks children without drawing the box. In MaskOnly the box draws its plain shape as an opaque white
+        // crisp quad instead of its layers, so it writes a clean stencil.
         [SerializeField] private MaskMode _masking = MaskMode.None;
 
         // CSS order: x = top-left, y = top-right, z = bottom-right, w = bottom-left.
         // Kept as one Vector4 so property bindings see four animatable channels.
         [SerializeField] private Vector4 _cornerRadii = new(8f, 8f, 8f, 8f);
         [SerializeField, Range(0f, 1f)] private float _cornerCurvature;
-        [SerializeField] private float _strokeWidth;
-        [SerializeField, Min(0f)] private float _blurRadius;
-        [SerializeField] private Vector2 _offset;
 
         // When true, this box ignores its own radii and curvature and derives them, per corner, from the
         // nearest ancestor Box so its rounded rect stays concentric with it. Resolves recursively, so a chain
         // of concentric boxes all match the outermost plain one.
         [SerializeField] private bool _concentric;
 
-        // Offsets the drawn box within its RectTransform, per side (x = left, y = right, z = top, w = bottom),
+        // Offsets the box's shape within its RectTransform, per side (x = left, y = right, z = top, w = bottom),
         // in canvas units. Positive shrinks it inward; negative grows it outward past the RectTransform. Only
         // the generated mesh changes: the corners stay concentric with the full rect, and a Mask on the box
         // therefore stencils to the offset shape. The RectTransform is untouched.
         [SerializeField] private Vector4 _inset;
 
-        [SerializeField] private bool _gradientEnabled;
-        [SerializeField] private ColorInterpolationMode _gradientMode = ColorInterpolationMode.OkLab;
-        [SerializeField] private bool _gradientUseVia;
-        [SerializeField] private Color _gradientFrom = Color.white;
-        [SerializeField] private Color _gradientVia = new(0.5f, 0.5f, 0.5f, 1f);
-        [SerializeField] private Color _gradientTo = Color.black;
-        [SerializeField, Range(0f, 1f)] private float _gradientViaPosition = 0.5f;
-        [SerializeField] private float _gradientAngle;
+        // The layers, drawn in this order. Each is named for what it is usually for; all three are the same kind of
+        // layer, so any can be any effect.
+        [SerializeField] private BoxLayer _shadow = new(new Color(0f, 0f, 0f, 0.5f)) { Enabled = false, Blur = 12f, Offset = new Vector2(0f, -4f) };
+        [SerializeField] private BoxLayer _fill = new(Color.white);
+        [SerializeField] private BoxLayer _border = new(Color.black) { Enabled = false, Stroke = 1f };
 
         /// <summary>Corner radii in CSS order: top-left, top-right, bottom-right, bottom-left. Clamped by the shader so radii sharing an edge fit within it. Ignored while <see cref="Concentric"/> is on.</summary>
         public Vector4 CornerRadii
@@ -94,7 +94,8 @@ namespace TimboJimbo.UI
         /// When true the box takes its corner radii and curvature from the nearest ancestor Box, matching each
         /// corner to the parent's so the rounded rects stay concentric across the inset between them. It
         /// resolves recursively, so a concentric box under another concentric box still matches the outermost
-        /// plain box. Its own <see cref="CornerRadii"/> and <see cref="CornerCurvature"/> are ignored.
+        /// plain box. Its own <see cref="CornerRadii"/> and <see cref="CornerCurvature"/> are ignored. It matches the
+        /// parent's shape, not the parent's layers.
         /// </summary>
         public bool Concentric
         {
@@ -108,10 +109,10 @@ namespace TimboJimbo.UI
         }
 
         /// <summary>
-        /// Offsets the drawn box within its RectTransform, per side (x = left, y = right, z = top, w = bottom),
-        /// in canvas units. Positive shrinks it inward; negative grows it outward past the RectTransform. The
-        /// corners stay concentric with the full rect, and because a Mask stencils from the drawn mesh this
-        /// offsets the mask too. Only the mesh changes; the RectTransform and layout are untouched.
+        /// Offsets the box's shape within its RectTransform, per side (x = left, y = right, z = top, w = bottom),
+        /// in canvas units. Positive shrinks it inward; negative grows it outward past the RectTransform. Every layer
+        /// is drawn from the shape, and the corners stay concentric with the full rect; because a Mask stencils from
+        /// the drawn mesh this offsets the mask too. Only the mesh changes; the RectTransform and layout are untouched.
         /// </summary>
         public Vector4 Inset
         {
@@ -124,51 +125,34 @@ namespace TimboJimbo.UI
             }
         }
 
-        /// <summary>
-        /// Width of a border ring. 0 draws a filled box. A positive width draws the ring inside the edge (CSS
-        /// border), a negative width draws it outside the edge, spilling past the box; the quad grows to fit.
-        /// </summary>
-        public float StrokeWidth
+        /// <summary>The layer drawn first, under the others; usually a drop shadow. Off by default.</summary>
+        public BoxLayer Shadow
         {
-            get => _strokeWidth;
-            set
-            {
-                if (Mathf.Approximately(_strokeWidth, value)) return;
-                _strokeWidth = value;
-                SetVerticesDirty();
-            }
+            get => _shadow;
+            set => SetLayer(ref _shadow, value);
         }
 
-        /// <summary>Softness of the edge in canvas units. 0 is a crisp anti-aliased edge; larger values give a soft shadow.</summary>
-        public float BlurRadius
+        /// <summary>The layer drawn second; usually the box's fill. On, in white, by default, so <see cref="Graphic.color"/> alone colours a plain box.</summary>
+        public BoxLayer Fill
         {
-            get => _blurRadius;
-            set
-            {
-                value = Mathf.Max(0f, value);
-                if (Mathf.Approximately(_blurRadius, value)) return;
-                _blurRadius = value;
-                SetVerticesDirty();
-            }
+            get => _fill;
+            set => SetLayer(ref _fill, value);
         }
 
-        /// <summary>Shifts the drawn box without moving the RectTransform, so a shadow can share the panel's anchors.</summary>
-        public Vector2 Offset
+        /// <summary>The layer drawn last, over the others; usually a border ring. Off by default.</summary>
+        public BoxLayer Border
         {
-            get => _offset;
-            set
-            {
-                if (_offset == value) return;
-                _offset = value;
-                SetVerticesDirty();
-            }
+            get => _border;
+            set => SetLayer(ref _border, value);
         }
 
         /// <summary>
         /// Whether this box masks its children, and whether it also draws itself. Setting it adds, configures or
-        /// removes a <see cref="Mask"/> component on this object to match. In <see cref="MaskMode.MaskOnly"/> the
-        /// box is not drawn, so its colour, gradient and blur are ignored and it renders as a crisp white shape
-        /// that writes a clean stencil.
+        /// removes a <see cref="Mask"/> component on this object to match. A Mask stencils from everything the box
+        /// draws, so in <see cref="MaskMode.DrawAndMask"/> a shadow, a blur or a ring outside the edge widens the mask
+        /// too; a box that casts a shadow and clips its content clips with a MaskOnly child. In
+        /// <see cref="MaskMode.MaskOnly"/> the box is not drawn: it draws its plain shape as a crisp white quad instead
+        /// of its layers, which writes a clean stencil.
         /// </summary>
         public MaskMode Masking
         {
@@ -194,107 +178,6 @@ namespace TimboJimbo.UI
                 if (_blendMode == value) return;
                 _blendMode = value;
                 SetMaterialDirty();
-            }
-        }
-
-        /// <summary>
-        /// When true the box is filled with a three-stop gradient (from → via → to). The stops carry their
-        /// own colour and alpha, and <see cref="Graphic.color"/> multiplies the whole gradient as a tint, so
-        /// colour changes and CanvasGroup fades apply to every stop.
-        /// </summary>
-        public bool GradientEnabled
-        {
-            get => _gradientEnabled;
-            set
-            {
-                if (_gradientEnabled == value) return;
-                _gradientEnabled = value;
-                SetVerticesDirty();
-            }
-        }
-
-        /// <summary>Colour space the gradient is interpolated in, matching the Property Bindings package's modes.</summary>
-        public ColorInterpolationMode GradientMode
-        {
-            get => _gradientMode;
-            set
-            {
-                if (_gradientMode == value) return;
-                _gradientMode = value;
-                SetVerticesDirty();
-            }
-        }
-
-        /// <summary>When false the via stop is ignored and the gradient runs straight from → to.</summary>
-        public bool GradientUseVia
-        {
-            get => _gradientUseVia;
-            set
-            {
-                if (_gradientUseVia == value) return;
-                _gradientUseVia = value;
-                SetVerticesDirty();
-            }
-        }
-
-        /// <summary>Start stop of the gradient.</summary>
-        public Color GradientFrom
-        {
-            get => _gradientFrom;
-            set
-            {
-                if (_gradientFrom == value) return;
-                _gradientFrom = value;
-                SetVerticesDirty();
-            }
-        }
-
-        /// <summary>Middle stop of the gradient, placed at <see cref="GradientViaPosition"/>.</summary>
-        public Color GradientVia
-        {
-            get => _gradientVia;
-            set
-            {
-                if (_gradientVia == value) return;
-                _gradientVia = value;
-                SetVerticesDirty();
-            }
-        }
-
-        /// <summary>End stop of the gradient.</summary>
-        public Color GradientTo
-        {
-            get => _gradientTo;
-            set
-            {
-                if (_gradientTo == value) return;
-                _gradientTo = value;
-                SetVerticesDirty();
-            }
-        }
-
-        /// <summary>Position of the via stop along the gradient, 0 at the from end and 1 at the to end.</summary>
-        public float GradientViaPosition
-        {
-            get => _gradientViaPosition;
-            set
-            {
-                value = Mathf.Clamp01(value);
-                if (Mathf.Approximately(_gradientViaPosition, value)) return;
-                _gradientViaPosition = value;
-                SetVerticesDirty();
-            }
-        }
-
-        /// <summary>Gradient direction in degrees. 0 runs left → right, 90 runs bottom → top, increasing counter-clockwise.</summary>
-        public float GradientAngle
-        {
-            get => _gradientAngle;
-            set
-            {
-                if (Mathf.Approximately(_gradientAngle, value)) return;
-                _gradientAngle = value;
-                SetVerticesDirty();
             }
         }
 
@@ -341,7 +224,7 @@ namespace TimboJimbo.UI
             DirtyConcentricDescendants();
         }
 
-        // Two of the three roles (shadow, border) are decorative, so opt in to raycasts rather than out.
+        // A box is most often decoration (a panel, a shadow, a ring), so opt in to raycasts rather than out.
         #if UNITY_EDITOR
         protected override void Reset()
         {
@@ -377,31 +260,54 @@ namespace TimboJimbo.UI
 
         protected override void OnPopulateMesh(VertexHelper vh)
         {
-            // MaskOnly draws nothing to colour (the Mask hides the graphic); it exists only to write a stencil,
-            // so it renders as a crisp opaque white shape with the colour, gradient and blur ignored.
-            var maskOnly = _masking == MaskMode.MaskOnly;
-            var blur = maskOnly ? 0f : _blurRadius;
-            var gradientEnabled = _gradientEnabled && !maskOnly;
+            vh.Clear();
 
-            // The drawn box is the rect shrunk by the inset; the mesh, and any Mask stencil taken from it,
-            // follow this smaller rounded rect while the RectTransform stays put.
-            var drawn = InsetRect(GetPixelAdjustedRect());
-            var halfSize = drawn.size * 0.5f;
-            var center = drawn.center;
+            // The shape is the rect offset by the inset; every layer is drawn from it, and any Mask stencil taken from
+            // the mesh follows it while the RectTransform stays put. Its effective radii (CSS order) and curvature are
+            // inherited from the parent when concentric, otherwise this box's own reduced by its inset, then CSS-clamped
+            // exactly as the shader would.
+            var shape = InsetRect(GetPixelAdjustedRect(), _inset);
+            ResolveGeometry(shape, out var radiiCss, out var curvature01);
+
+            // MaskOnly draws nothing to colour (the Mask hides the graphic); it exists only to write a stencil.
+            if (_masking == MaskMode.MaskOnly)
+            {
+                AddLayer(vh, MaskShape, shape, radiiCss, curvature01, Color.white);
+                return;
+            }
+
+            // Graphic.color tints every layer, and picks up the CanvasGroup alpha the renderer applies to the colour
+            // channel.
+            var tint = color;
+            AddLayer(vh, _shadow, shape, radiiCss, curvature01, tint);
+            AddLayer(vh, _fill, shape, radiiCss, curvature01, tint);
+            AddLayer(vh, _border, shape, radiiCss, curvature01, tint);
+        }
+
+        // Adds one layer as a quad: the shape grown by the layer's spread, moved by its offset and padded for its blur and
+        // any ring outside the edge.
+        private static void AddLayer(VertexHelper vh, BoxLayer layer, Rect shape, Vector4 shapeRadii, float curvature01, Color tint)
+        {
+            if (!layer.Enabled) return;
+
+            // Spread offsets every side, with the corners kept concentric, as a negative inset does.
+            var spread = new Vector4(-layer.Spread, -layer.Spread, -layer.Spread, -layer.Spread);
+            var rect = InsetRect(shape, spread);
+            var radiiCss = ClampRadiiCss(InsetRadii(shapeRadii, spread), rect.size);
+
+            var halfSize = rect.size * 0.5f;
+            var center = rect.center;
+            var blur = Mathf.Max(0f, layer.Blur);
             // A negative stroke draws its ring outside the edge, so the quad needs that much extra room too.
-            var padding = Mathf.Max(0f, blur) + Mathf.Max(0f, -_strokeWidth) + AntiAliasPadding;
-
-            // Effective radii (CSS order) and curvature: inherited from the parent when concentric, otherwise
-            // this box's own reduced by its inset, then CSS-clamped exactly as the shader would.
-            ResolveGeometry(drawn, out var radiiCss, out var curvature01);
+            var padding = blur + Mathf.Max(0f, -layer.Stroke) + AntiAliasPadding;
 
             // Everything travels in texcoords, which the canvas passes through as written (it transforms a normal
             // or tangent by the box's rotation and scale). The radii go as fractions of the short side, which no
             // clamped radius exceeds, two to a float in shader order (TR, BR) and (TL, BL); the gradient stops fill
             // the rest (see UiPacking.PackStopsForTexcoords).
-            var shortSide = Mathf.Min(drawn.width, drawn.height);
+            var shortSide = Mathf.Min(rect.width, rect.height);
             var perShortSide = shortSide > 0f ? 1f / shortSide : 0f;
-            var stops = UiPacking.PackStopsForTexcoords(_gradientFrom, _gradientVia, _gradientTo);
+            var stops = UiPacking.PackStopsForTexcoords(layer.GradientFrom, layer.GradientVia, layer.GradientTo);
             var radiiAndStops = new Vector4(
                 UiPacking.PackPair12(radiiCss.y * perShortSide, radiiCss.z * perShortSide),
                 UiPacking.PackPair12(radiiCss.x * perShortSide, radiiCss.w * perShortSide),
@@ -410,32 +316,31 @@ namespace TimboJimbo.UI
 
             var parameters = new Vector4(
                 blur,
-                _strokeWidth,
-                UiPacking.PackPair12(curvature01, _gradientViaPosition),
-                UiPacking.PackGradientHeader(gradientEnabled, _gradientMode, _gradientUseVia, _gradientAngle));
+                layer.Stroke,
+                UiPacking.PackPair12(curvature01, layer.GradientViaPosition),
+                UiPacking.PackGradientHeader(layer.GradientEnabled, layer.GradientMode, layer.GradientUseVia, layer.GradientAngle));
 
-            // Graphic.color is the tint on the colour channel: it multiplies the whole gradient and picks up
-            // the CanvasGroup alpha the renderer applies there.
-            Color32 tint = maskOnly ? (Color32)Color.white : (Color32)color;
+            // The layer's colour tinted by the box's, on the colour channel: the shader multiplies the gradient by it.
+            Color32 vertexColor = layer.Color * tint;
 
-            vh.Clear();
+            var first = vh.currentVertCount;
             AddCorner(-1f, -1f);
             AddCorner(-1f, 1f);
             AddCorner(1f, 1f);
             AddCorner(1f, -1f);
-            vh.AddTriangle(0, 1, 2);
-            vh.AddTriangle(2, 3, 0);
+            vh.AddTriangle(first, first + 1, first + 2);
+            vh.AddTriangle(first + 2, first + 3, first);
 
             void AddCorner(float signX, float signY)
             {
                 // Rect-centred sample position: includes the padding so interpolation yields the true
                 // SDF position for every pixel, excludes the offset so the shape moves with the quad.
                 var sample = new Vector2(signX * (halfSize.x + padding), signY * (halfSize.y + padding));
-                var position = center + sample + _offset;
+                var position = center + sample + layer.Offset;
 
                 vh.AddVert(
                     position,
-                    tint,
+                    vertexColor,
                     new Vector4((signX + 1f) * 0.5f, (signY + 1f) * 0.5f, stops.x, stops.y),
                     new Vector4(halfSize.x, halfSize.y, sample.x, sample.y),
                     radiiAndStops,
@@ -445,79 +350,83 @@ namespace TimboJimbo.UI
             }
         }
 
+        private void SetLayer(ref BoxLayer layer, BoxLayer value)
+        {
+            if (layer.Equals(value)) return;
+            layer = value;
+            SetVerticesDirty();
+        }
+
         // ── Concentric / inset geometry ────────────────────────────────────────────
 
         /// <summary>
-        /// The box's drawn rounded rect: its effective radii (CSS order, this box's canvas units) and curvature
-        /// (0..1). Concentric boxes recurse into the parent; otherwise the box's own values reduced by its inset
-        /// are used. Radii are CSS-clamped to <paramref name="drawn"/> exactly as the shader clamps them.
+        /// The box's shape: its effective radii (CSS order, this box's canvas units) and curvature (0..1).
+        /// Concentric boxes recurse into the parent; otherwise the box's own values reduced by its inset are
+        /// used. Radii are CSS-clamped to <paramref name="shape"/> exactly as the shader clamps them.
         /// </summary>
-        private void ResolveGeometry(Rect drawn, out Vector4 radii, out float curvature)
+        private void ResolveGeometry(Rect shape, out Vector4 radii, out float curvature)
         {
             var parent = _concentric ? NearestAncestorBox() : null;
             if (parent != null)
             {
-                parent.GetEffectiveDrawnBox(out var pMin, out var pMax, out var pRadii, out var pCurv);
-                LocalRectToWorld(drawn, out var cMin, out var cMax);
+                parent.GetEffectiveShape(out var pMin, out var pMax, out var pRadii, out var pCurv);
+                LocalRectToWorld(shape, out var cMin, out var cMax);
 
-                // Signed gaps between the parent's drawn box and this one, per side, in this box's canvas units.
+                // Signed gaps between the parent's shape and this one, per side, in this box's canvas units.
                 // Positive means this box is inset (inside the parent); negative means it is outset (larger). A
                 // corner follows the adjacent side that deviates most from the parent (largest magnitude), so it
                 // shrinks when inset and grows when outset. Our circular corners cannot follow CSS's ellipse, so
                 // this is the concentric approximation for uneven offsets.
                 var scale = 1f / WorldScale();
-                var gl = (cMin.x - pMin.x) * scale;
-                var gr = (pMax.x - cMax.x) * scale;
-                var gt = (pMax.y - cMax.y) * scale;
-                var gb = (cMin.y - pMin.y) * scale;
+                var gaps = new Vector4(
+                    (cMin.x - pMin.x) * scale,   // left
+                    (pMax.x - cMax.x) * scale,   // right
+                    (pMax.y - cMax.y) * scale,   // top
+                    (cMin.y - pMin.y) * scale);  // bottom
 
-                radii = new Vector4(
-                    Mathf.Max(0f, pRadii.x - SignedMax(gl, gt)),   // TL
-                    Mathf.Max(0f, pRadii.y - SignedMax(gr, gt)),   // TR
-                    Mathf.Max(0f, pRadii.z - SignedMax(gr, gb)),   // BR
-                    Mathf.Max(0f, pRadii.w - SignedMax(gl, gb)));  // BL
+                radii = InsetRadii(pRadii, gaps);
                 curvature = pCurv;
             }
             else
             {
-                radii = ReduceRadiiByInset(_cornerRadii);
+                radii = InsetRadii(_cornerRadii, _inset);
                 curvature = _cornerCurvature;
             }
 
-            radii = ClampRadiiCss(radii, drawn.size);
+            radii = ClampRadiiCss(radii, shape.size);
         }
 
         /// <summary>
-        /// The world-space axis-aligned box, effective radii and curvature of this box as drawn (after its
-        /// inset and any concentric resolution). Used by a concentric child to match this box, so it recurses.
+        /// The world-space axis-aligned box, effective radii and curvature of this box's shape (after its inset and
+        /// any concentric resolution). Used by a concentric child to match this box, so it recurses.
         /// </summary>
-        private void GetEffectiveDrawnBox(out Vector2 worldMin, out Vector2 worldMax, out Vector4 radii, out float curvature)
+        private void GetEffectiveShape(out Vector2 worldMin, out Vector2 worldMax, out Vector4 radii, out float curvature)
         {
-            var drawn = InsetRect(GetPixelAdjustedRect());
-            LocalRectToWorld(drawn, out worldMin, out worldMax);
-            ResolveGeometry(drawn, out radii, out curvature);
+            var shape = InsetRect(GetPixelAdjustedRect(), _inset);
+            LocalRectToWorld(shape, out worldMin, out worldMax);
+            ResolveGeometry(shape, out radii, out curvature);
         }
 
-        // The rect offset by the per-side inset (x = left, y = right, z = top, w = bottom). Positive insets
-        // shrink it; negative insets grow it past the rect (outset). Collapses to a line rather than inverting
-        // if positive insets exceed the size.
-        private Rect InsetRect(Rect r)
+        // The rect offset by a per-side inset (x = left, y = right, z = top, w = bottom). Positive insets shrink it;
+        // negative insets grow it past the rect (outset). Collapses to a line rather than inverting if positive insets
+        // exceed the size.
+        private static Rect InsetRect(Rect r, Vector4 inset)
         {
-            var xMin = r.xMin + _inset.x;
-            var xMax = r.xMax - _inset.y;
-            var yMax = r.yMax - _inset.z;
-            var yMin = r.yMin + _inset.w;
+            var xMin = r.xMin + inset.x;
+            var xMax = r.xMax - inset.y;
+            var yMax = r.yMax - inset.z;
+            var yMin = r.yMin + inset.w;
             if (xMax < xMin) xMin = xMax = 0.5f * (xMin + xMax);
             if (yMax < yMin) yMin = yMax = 0.5f * (yMin + yMax);
             return Rect.MinMaxRect(xMin, yMin, xMax, yMax);
         }
 
-        // Offsets each corner radius (CSS order) so the drawn corner stays concentric with the full-rect corner:
-        // an inset side shrinks its corners, a negative (outset) side grows them. Each corner follows whichever
-        // of its two adjacent sides deviates most from the rect (largest magnitude).
-        private Vector4 ReduceRadiiByInset(Vector4 radii)
+        // Offsets each corner radius (CSS order) by a per-side inset (x = left, y = right, z = top, w = bottom) so the
+        // offset corner stays concentric with the original: an inset side shrinks its corners, a negative (outset) side
+        // grows them. Each corner follows whichever of its two adjacent sides deviates most (largest magnitude).
+        private static Vector4 InsetRadii(Vector4 radii, Vector4 inset)
         {
-            float left = _inset.x, right = _inset.y, top = _inset.z, bottom = _inset.w;
+            float left = inset.x, right = inset.y, top = inset.z, bottom = inset.w;
             return new Vector4(
                 Mathf.Max(0f, radii.x - SignedMax(left, top)),      // TL
                 Mathf.Max(0f, radii.y - SignedMax(right, top)),     // TR
@@ -548,7 +457,7 @@ namespace TimboJimbo.UI
         }
 
         // The value with the larger magnitude, keeping its sign: the corner follows whichever adjacent side
-        // deviates most from the parent, whether inset (positive) or outset (negative).
+        // deviates most, whether inset (positive) or outset (negative).
         private static float SignedMax(float a, float b) => Mathf.Abs(a) >= Mathf.Abs(b) ? a : b;
 
         private void LocalRectToWorld(Rect r, out Vector2 worldMin, out Vector2 worldMax)

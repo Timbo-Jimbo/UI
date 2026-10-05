@@ -7,8 +7,9 @@ using UnityEngine;
 namespace TimboJimboEditor.UI
 {
     /// <summary>
-    /// Inspector for <see cref="Box"/>, laid out in the same order as Img's: what it looks like (colour and
-    /// gradient), the material, the shape, the effects, then the raycast and mask controls.
+    /// Inspector for <see cref="Box"/>: its colour (the tint over every layer), the material, the shape, the three
+    /// layers in the order they are drawn, the effects, then the raycast and mask controls. Each layer is a header
+    /// with a toggle that turns it on, which folds open to the layer's paint and edge.
     /// </summary>
     [CustomEditor(typeof(Box))]
     [CanEditMultipleObjects]
@@ -19,7 +20,13 @@ namespace TimboJimboEditor.UI
         private const float PresetTolerance = 1e-3f;
 
         private static readonly string[] s_shapeNames = Enum.GetNames(typeof(CornerShape));
-        private static readonly GUIContent s_maskingLabel = new("Masking", "None: no masking. Draw and Mask: draw the box and clip its children to it. Mask Only: clip children without drawing the box (colour, gradient and blur are ignored).");
+        private const float FoldoutWidth = 14f;
+
+        private static readonly GUIContent s_colorLabel = new("Color", "Tints every layer.");
+        private static readonly GUIContent s_shadowLabel = new("Shadow", "Drawn first, under the others; usually a drop shadow.");
+        private static readonly GUIContent s_fillLabel = new("Fill", "Drawn second; usually the box's fill.");
+        private static readonly GUIContent s_borderLabel = new("Border", "Drawn last, over the others; usually a border ring.");
+        private static readonly GUIContent s_maskingLabel = new("Masking", "None: no masking. Draw and Mask: draw the box and clip its children to everything it draws (a shadow or a ring outside the edge widens the mask). Mask Only: clip children to the plain shape without drawing the box (the layers are ignored).");
         private static readonly GUIContent s_cornerShapeLabel = new("Corner Shape", "Presets on the Curvature slider. Near the size limit the shader eases toward circular so pills stay clean.");
         private static readonly GUIContent s_uniformRadiusLabel = new("Corner Radius", "Clamped so radii sharing an edge fit within it; a short box becomes a pill.");
         private static readonly GUIContent s_uniformInsetLabel = new("Inset", "Offsets the drawn box (and any Mask taken from it) within the RectTransform, in canvas units. Positive shrinks inward, negative spills outward. Corners stay concentric.");
@@ -37,11 +44,13 @@ namespace TimboJimboEditor.UI
         private SerializedProperty _cornerRadii;
         private SerializedProperty _cornerCurvature;
         private SerializedProperty _inset;
-        private SerializedProperty _strokeWidth;
-        private SerializedProperty _blurRadius;
-        private SerializedProperty _offset;
+        private SerializedProperty _shadow;
+        private SerializedProperty _fill;
+        private SerializedProperty _border;
         private SerializedProperty _blendMode;
-        private GradientSection _gradient;
+        private GradientSection _shadowGradient;
+        private GradientSection _fillGradient;
+        private GradientSection _borderGradient;
 
         protected override void OnEnable()
         {
@@ -51,26 +60,25 @@ namespace TimboJimboEditor.UI
             _cornerRadii = serializedObject.FindProperty("_cornerRadii");
             _cornerCurvature = serializedObject.FindProperty("_cornerCurvature");
             _inset = serializedObject.FindProperty("_inset");
-            _strokeWidth = serializedObject.FindProperty("_strokeWidth");
-            _blurRadius = serializedObject.FindProperty("_blurRadius");
-            _offset = serializedObject.FindProperty("_offset");
+            _shadow = serializedObject.FindProperty("_shadow");
+            _fill = serializedObject.FindProperty("_fill");
+            _border = serializedObject.FindProperty("_border");
             _blendMode = serializedObject.FindProperty("_blendMode");
-            _gradient = new GradientSection(serializedObject);
+            _shadowGradient = new GradientSection(_shadow);
+            _fillGradient = new GradientSection(_fill);
+            _borderGradient = new GradientSection(_border);
         }
 
         public override void OnInspectorGUI()
         {
             serializedObject.Update();
 
-            // Mask Only draws nothing, so its colour, gradient and blur are hidden and treated as white / off / 0.
+            // Mask Only draws its plain shape instead of its layers, so the colour and the layers are hidden.
             // The Masking control itself is drawn lower down, next to the raycast and mask controls.
             var maskOnly = !_masking.hasMultipleDifferentValues && _masking.enumValueIndex == (int)MaskMode.MaskOnly;
 
             if (!maskOnly)
-            {
-                EditorGUILayout.PropertyField(m_Color);
-                _gradient.Draw();
-            }
+                EditorGUILayout.PropertyField(m_Color, s_colorLabel);
 
             EditorGUILayout.Space();
             EditorGUILayout.PropertyField(m_Material);
@@ -84,10 +92,15 @@ namespace TimboJimboEditor.UI
                 DrawCurvature();
             }
             DrawLockable(_inset, s_uniformInsetLabel, s_sideLabels, InsetLockedPrefKey, allowNegative: true);
-            EditorGUILayout.PropertyField(_strokeWidth, new GUIContent("Stroke Width", "Border ring width. 0 fills the box. Positive draws the ring inside the edge; negative draws it outside, spilling past the box."));
+
             if (!maskOnly)
-                EditorGUILayout.PropertyField(_blurRadius, new GUIContent("Blur Radius", "Edge softness in canvas units. 0 is a crisp anti-aliased edge; larger gives a soft shadow."));
-            EditorGUILayout.PropertyField(_offset, new GUIContent("Offset", "Shifts the drawn box without moving the RectTransform, so a shadow can share the panel's anchors."));
+            {
+                EditorGUILayout.Space();
+                Header("Layers");
+                DrawLayer(_shadow, _shadowGradient, s_shadowLabel);
+                DrawLayer(_fill, _fillGradient, s_fillLabel);
+                DrawLayer(_border, _borderGradient, s_borderLabel);
+            }
 
             EditorGUILayout.Space();
             Header("Effects");
@@ -110,6 +123,38 @@ namespace TimboJimboEditor.UI
             }
 
             serializedObject.ApplyModifiedProperties();
+        }
+
+        // A layer as a header row (a foldout arrow and the toggle that turns it on) and, folded open, its paint (colour and
+        // gradient) and its edge (stroke, blur, offset, spread). The fold state is the property's own isExpanded.
+        private static void DrawLayer(SerializedProperty layer, GradientSection gradient, GUIContent label)
+        {
+            var enabled = layer.FindPropertyRelative(nameof(BoxLayer.Enabled));
+            var row = EditorGUILayout.GetControlRect();
+            layer.isExpanded = EditorGUI.Foldout(new Rect(row.x, row.y, FoldoutWidth, row.height), layer.isExpanded, GUIContent.none, true);
+
+            var toggleRect = new Rect(row.x + FoldoutWidth, row.y, row.width - FoldoutWidth, row.height);
+            var toggleLabel = EditorGUI.BeginProperty(toggleRect, label, enabled);
+            EditorGUI.showMixedValue = enabled.hasMultipleDifferentValues;
+            EditorGUI.BeginChangeCheck();
+            var on = EditorGUI.ToggleLeft(toggleRect, toggleLabel, enabled.boolValue);
+            if (EditorGUI.EndChangeCheck())
+                enabled.boolValue = on;
+            EditorGUI.showMixedValue = false;
+            EditorGUI.EndProperty();
+
+            if (!layer.isExpanded)
+                return;
+
+            using (new EditorGUI.IndentLevelScope())
+            {
+                EditorGUILayout.PropertyField(layer.FindPropertyRelative(nameof(BoxLayer.Color)));
+                gradient.Draw();
+                EditorGUILayout.PropertyField(layer.FindPropertyRelative(nameof(BoxLayer.Stroke)));
+                EditorGUILayout.PropertyField(layer.FindPropertyRelative(nameof(BoxLayer.Blur)));
+                EditorGUILayout.PropertyField(layer.FindPropertyRelative(nameof(BoxLayer.Offset)));
+                EditorGUILayout.PropertyField(layer.FindPropertyRelative(nameof(BoxLayer.Spread)));
+            }
         }
 
         // One field locked to a single value (default), or four independent fields, toggled by a lock button

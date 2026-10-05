@@ -13,6 +13,12 @@
 - `VariantGroup.Animated` and its toggle are gone: a group always switches inside a change on its `Animation` (Inherit for the default, None for at once), as a layout change does, where a node with an Animation of its own keeps it
 - `VariantStates` shows Focused while its object is selected and focus shows (`FocusSystem.FocusVisible`): after keyboard or gamepad input, not after a click or a touch, as CSS's `:focus-visible`
 - `VariantSet.Get` returns Default for a name a group inherits that it has no variant of, as it shows; the name still passes down
+- `Box` draws in three layers, back to front: `Shadow`, `Fill` and `Border`, each a `BoxLayer` (a colour or a three-stop gradient, filled or a ring by `Stroke`, softened by `Blur`, moved by `Offset`, grown or shrunk by `Spread` with its corners kept concentric), so a card with a drop shadow, a gradient fill and a gradient border is one Box and still one draw call. The Box keeps the shape (radii, curvature, `Concentric`, `Inset`), masking and blend mode, and `Graphic.color` tints every layer; a new Box's Fill is on in white, so a plain box is coloured by `color` as before. The layers are fields rather than a list, so Variants, Property Bindings and record mode reach them by path (`_border.Color`). For more than one of a layer, stack Boxes as separate objects. Mask Only draws the plain shape and none of the layers, so a stroke no longer turns its stencil into a ring; Draw and Mask stencils from everything drawn, a shadow or an outside ring included
+- Box inspector: the layers are three rows, each with a toggle that turns it on, folding open to its colour, gradient, stroke, blur, offset and spread
+
+### Removed
+
+- `Box.StrokeWidth`, `BlurRadius`, `Offset` and the `Gradient...` properties: they are a layer's now (`box.Fill = new BoxLayer(Color.white) { Stroke = 2f }`)
 
 ## [0.3.0] - 02/10/2026
 
