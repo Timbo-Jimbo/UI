@@ -11,6 +11,10 @@ Needs Core's next version (`ColorExtra.Lerp(mode, from, to, t)`).
 - A software keyboard is no longer part of a root's safe area: nothing moves for it unless it opts in (`AvoidsKeyboard`), as in UIKit. Before, every root kept its content clear of it, so the screen behind a page being popped, and a tab bar floating in it, slid down as the keyboard hid during the transition
 - The gradient preview in the Box and Img inspectors interpolates through Core's `ColorExtra.Lerp(mode, ...)`, so it and every other colour transition share one switch over the modes; needs Core's next version
 
+### Fixed
+
+- In play mode, every change to the hierarchy (an object made, destroyed or moved, which a dynamic UI does every frame) had the variant preview repaint every editor view, though nothing is previewed in play mode. It no longer samples there; a variant set's inspector is drawn again as the set switches, and a breakpoints inspector's readout as what it reads changes
+
 ## [0.4.0] - 06/10/2026
 
 ### Added

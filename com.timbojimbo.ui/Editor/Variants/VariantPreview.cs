@@ -131,12 +131,16 @@ namespace TimboJimboEditor.UI.Variants
 
         private static void Update()
         {
+            // Nothing is previewed in play mode (leaving edit mode stopped it), whose hierarchy may change every frame:
+            // sampling there would only repaint every view each time. What changed meanwhile is sampled back in edit mode.
+            if (EditorApplication.isPlayingOrWillChangePlaymode) return;
+
             // Whoever held AnimationMode has let go of it.
             if (Paused && !AnimationMode.InAnimationMode())
                 s_dirty = true;
 
             // A canvas or the Game view resizing says nothing: a breakpoint that now gives another variant asks for one.
-            if (!s_dirty && !EditorApplication.isPlayingOrWillChangePlaymode && BreakpointsMoved())
+            if (!s_dirty && BreakpointsMoved())
                 s_dirty = true;
 
             if (s_dirty)

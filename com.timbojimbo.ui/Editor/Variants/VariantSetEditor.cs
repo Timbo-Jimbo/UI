@@ -34,8 +34,28 @@ namespace TimboJimboEditor.UI.Variants
 
         private VariantSet Set => (VariantSet)target;
 
-        private void OnEnable() => VariantPreview.Sampled += Repaint;
-        private void OnDisable() => VariantPreview.Sampled -= Repaint;
+        // Drawn again as the preview samples, and as a set switches (in play mode, by code, a state or a breakpoint).
+        private void OnEnable()
+        {
+            VariantPreview.Sampled += Repaint;
+            foreach (var edited in targets)
+            {
+                if (edited is VariantSet set)
+                    set.Changed += OnSwitched;
+            }
+        }
+
+        private void OnDisable()
+        {
+            VariantPreview.Sampled -= Repaint;
+            foreach (var edited in targets)
+            {
+                if (edited is VariantSet set)
+                    set.Changed -= OnSwitched;
+            }
+        }
+
+        private void OnSwitched(VariantSet _) => Repaint();
 
         public override void OnInspectorGUI()
         {

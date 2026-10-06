@@ -15,9 +15,23 @@ namespace TimboJimboEditor.UI.Variants
         private static readonly GUIContent s_from = new("From", "The least it measures for this breakpoint's variant to be selected.");
         private static readonly GUIContent s_remove = new("×", "Remove this breakpoint.");
 
-        // The readout follows the preview, which samples again whenever a breakpoint gives another variant.
+        // The readout follows the preview in edit mode, which samples again whenever a breakpoint gives another variant;
+        // in play mode it is drawn again while what it reads has changed since it was last painted.
         private void OnEnable() => VariantPreview.Sampled += Repaint;
         private void OnDisable() => VariantPreview.Sampled -= Repaint;
+
+        private string _shown;
+
+        public override bool RequiresConstantRepaint() =>
+            Application.isPlaying && targets.Length == 1 && Readout((VariantBreakpoints)target) != _shown;
+
+        // What it measures now and the variant that gives.
+        private static string Readout(VariantBreakpoints breakpoints)
+        {
+            var size = breakpoints.DrawnSize;
+            string now = breakpoints.VariantFor(size);
+            return $"{breakpoints.MeasureOf(size):0.##}: {(now.Length == 0 ? "Default" : now)}";
+        }
 
         public override void OnInspectorGUI()
         {
@@ -55,10 +69,11 @@ namespace TimboJimboEditor.UI.Variants
             if (GUILayout.Button("Add Breakpoint"))
                 Add(list);
 
-            var size = breakpoints.DrawnSize;
-            string now = breakpoints.VariantFor(size);
+            string readout = Readout(breakpoints);
+            if (Event.current.type == EventType.Repaint)
+                _shown = readout;
             EditorGUILayout.Space(2);
-            EditorGUILayout.LabelField("Now", $"{breakpoints.MeasureOf(size):0.##}: {(now.Length == 0 ? "Default" : now)}", EditorStyles.miniLabel);
+            EditorGUILayout.LabelField("Now", readout, EditorStyles.miniLabel);
 
             serializedObject.ApplyModifiedProperties();
         }
