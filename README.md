@@ -4,7 +4,7 @@ UI for UGUI in one package: components that draw, a layout engine whose nodes mo
 
 📐 **Layout**
 
-A layout engine modelled on [Clay](https://github.com/nicbarker/clay): fit, grow and fixed sizing, wrapping and grids, floating, the safe area (a software keyboard's too), and scrolling as a UIScrollView's. See [Layout](#layout).
+A layout engine modelled on [Clay](https://github.com/nicbarker/clay): fit, grow and fixed sizing, wrapping and grids, floating, the safe area and keeping clear of a software keyboard, and scrolling as a UIScrollView's. See [Layout](#layout).
 
 🌀 **Motion**
 
@@ -264,9 +264,10 @@ list.IgnoresSafeArea = Edges.Bottom;                            // rows scroll u
 
 A node floating against the root sits inside the safe area. The Game view's safe area is the whole screen: the Simulator shows a phone's.
 
-A software keyboard is part of the safe area at the bottom, as in SwiftUI's keyboard safe area: `LayoutSystem.KeyboardHeight` says how far up the screen it covers (screen pixels), and a root keeps its content clear of whichever reaches higher, the keyboard or the home bar. A chat's composer rises above the keyboard while the page's background reaches under it, and a list ignoring the bottom scrolls on under it and comes to rest clear of it. Set it once a frame as the keyboard slides and layout follows it exactly, or inside `Animate` to spring. It's general: the UI Text Input package sets it for the platform's keyboard, and anything tracking a keyboard can.
+A software keyboard is not part of the safe area, as it is not of UIKit's: a node keeps clear of it by opting in, `AvoidsKeyboard`, as a view laid out against UIKit's keyboard layout guide does. Where the keyboard covers it, its bottom padding grows by as much (counting what it already keeps clear of the home bar), so its content rises with the keyboard while it keeps its rect, its background reaching under the keyboard: a chat's page, whose composer sits on the keyboard. Nothing else moves, so the screen a page was pushed over and a tab bar stay put as the keyboard comes and goes. Its size should be its parent's to give (grown, fixed, a share, or floating against the root), as padding can't shrink a node fitted to its content. `LayoutSystem.KeyboardHeight` says how far up the screen the keyboard covers (screen pixels): set it once a frame as the keyboard slides and layout follows it exactly, or inside `Animate` to spring. It's general: the UI Text Input package sets it for the platform's keyboard, and anything tracking a keyboard can.
 
 ```csharp
+chatPage.AvoidsKeyboard = true;            // its composer rises above the keyboard; the list behind stays put
 LayoutSystem.KeyboardHeight = keyboardTop; // screen pixels up from the bottom, each frame it moves
 ```
 

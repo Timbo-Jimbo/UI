@@ -31,11 +31,14 @@ namespace TimboJimbo.UI.Layout
         [Tooltip("Space between its edges and its children or content.")]
         [SerializeField] private Insets _padding;
 
-        [Tooltip("A root's: the edges it keeps its content clear of the screen's notch, rounded corners and home bar on (and at the bottom, a software keyboard), adding as much of that as it covers to its padding, as SwiftUI keeps views in the safe area. Its own background still fills its rect.")]
+        [Tooltip("A root's: the edges it keeps its content clear of the screen's notch, rounded corners and home bar on, adding as much of that as it covers to its padding, as SwiftUI keeps views in the safe area. Its own background still fills its rect.")]
         [SerializeField] private Edges _safeArea = Edges.All;
 
         [Tooltip("The edges it reaches out to the screen's edge on where it lies against the safe area, its padding growing by as much so what is inside stays clear, as SwiftUI's ignoresSafeArea: a bar's colour under the notch, a list scrolling under the home bar.")]
         [SerializeField] private Edges _ignoresSafeArea;
+
+        [Tooltip("Keeps what it holds above a software keyboard, as a view laid out against UIKit's keyboard layout guide: where the keyboard covers it, its bottom padding grows by as much, so its content rises with the keyboard while it keeps its rect. Off by default: nothing else moves for the keyboard.")]
+        [SerializeField] private bool _avoidsKeyboard;
 
         [Tooltip("Space between one child and the next, and between one line and the next when they wrap.")]
         [SerializeField] private float _childGap;
@@ -115,10 +118,9 @@ namespace TimboJimbo.UI.Layout
         /// <summary>
         /// A root's: the edges it keeps its content clear of the screen's unsafe area on (a notch, rounded corners, the
         /// home bar: outside <see cref="Screen.safeArea"/>), as SwiftUI keeps views in the safe area; all of them by
-        /// default. At the bottom a software keyboard is unsafe too (<see cref="LayoutSystem.KeyboardHeight"/>), as in
-        /// SwiftUI's keyboard safe area, and it keeps clear of whichever reaches higher. It adds as much of that as it
-        /// covers to its <see cref="Padding"/>, so a root away from the notch adds nothing, and its own background (a Box
-        /// on it) still fills its rect. Read every frame, so a rotation, the Device Simulator's device or the keyboard
+        /// default. It adds as much of that as it covers to its <see cref="Padding"/>, so a root away from the notch adds
+        /// nothing, and its own background (a Box on it) still fills its rect. A software keyboard is not part of it, as
+        /// it is not of UIKit's safe area: a node that keeps clear of the keyboard says so (<see cref="AvoidsKeyboard"/>). Read every frame, so a rotation, the Device Simulator's device or the keyboard
         /// sliding is taken up at once. Only an outermost root keeps it (one inside another tree goes by where that tree
         /// puts it), and not on a world space canvas. A node that should reach under it sets <see cref="IgnoresSafeArea"/>.
         /// Unused on any other node.
@@ -135,6 +137,18 @@ namespace TimboJimbo.UI.Layout
         /// where it was laid out. A root does not reach: it keeps its rect.
         /// </summary>
         public Edges IgnoresSafeArea { get => _ignoresSafeArea; set { _ignoresSafeArea = value; Changed(); } }
+
+        /// <summary>
+        /// Keeps what it holds above a software keyboard (<see cref="LayoutSystem.KeyboardHeight"/>), as a view laid out
+        /// against UIKit's keyboard layout guide: where the keyboard covers it, as it is laid out, its bottom padding
+        /// grows by as much (counting what it already keeps clear of the home bar, which the keyboard covers too), so its
+        /// content rises with the keyboard as it slides, while it keeps its rect and its background reaches under the
+        /// keyboard. A chat's page, so its composer sits on the keyboard; a sheet holding a form. Its size should be its
+        /// parent's to give (grown, fixed, a share, or floating against the root), as padding cannot shrink a node fitted
+        /// to its content. Off by default, as in UIKit: nothing else moves for the keyboard, so the screen a page avoiding
+        /// it was pushed over, and a tab bar, stay where they are as it comes and goes.
+        /// </summary>
+        public bool AvoidsKeyboard { get => _avoidsKeyboard; set { _avoidsKeyboard = value; Changed(); } }
 
         /// <summary>Space between one child and the next, and between one line and the next when they wrap (<see cref="Wrap"/>).</summary>
         public float ChildGap { get => _childGap; set { _childGap = value; Changed(); } }

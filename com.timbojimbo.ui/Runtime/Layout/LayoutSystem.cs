@@ -28,9 +28,11 @@ namespace TimboJimbo.UI.Layout
         // change's (AnimationOf). In edit mode nothing animates.
         //
         // An outermost root keeps its content clear of the screen's safe area on the edges its SafeArea names, read
-        // each pass: the solver adds the part of the unsafe area it covers to its padding. At the bottom a software
-        // keyboard (KeyboardHeight) is unsafe too, as in SwiftUI's keyboard safe area: the root keeps clear of whichever
-        // of it and the screen's own unsafe area reaches higher. A node ignoring the safe area on an edge
+        // each pass: the solver adds the part of the unsafe area it covers to its padding. A software keyboard
+        // (KeyboardHeight) is not part of it, as it is not of UIKit's: a node that keeps clear of the keyboard says so
+        // (AvoidsKeyboard), as a view laid out against UIKit's keyboard layout guide does, and a tree with one in it the
+        // keyboard covers is solved a second time, that node's bottom padding grown by as much as it covers (beyond what
+        // it already keeps clear of the bottom of the safe area). A node ignoring the safe area on an edge
         // (IgnoresSafeArea) reaches back out past it to the root's edge where it lies against it, its padding growing by
         // as much, so what is inside stays clear. That reach (a root's being its safe area) is kept on the node, and what
         // it scrolls comes to rest, snaps and draws its indicators clear of it, as a UIScrollView adjusts its insets for
@@ -128,6 +130,11 @@ namespace TimboJimbo.UI.Layout
 
         // How far up the screen a software keyboard covers it, in screen pixels (KeyboardHeight).
         private static float s_keyboardHeight;
+
+        // How many nodes of the tree being laid out avoid the keyboard (AvoidsKeyboard), and every solver node's
+        // padding as given, from before a solve that grows some, to solve again from.
+        private static int s_avoiding;
+        private static Insets[] s_paddings = new Insets[64];
 
         // Statics survive play mode sessions when domain reload is off.
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -616,16 +623,13 @@ namespace TimboJimbo.UI.Layout
         /// <summary>
         /// How far up from the bottom of the screen a software keyboard covers it, in screen pixels (the space of
         /// <see cref="Screen.safeArea"/>): 0 with none up, and with one floating or split, which is not docked at the
-        /// bottom. It is part of the safe area, as SwiftUI's keyboard safe area: an outermost root whose
-        /// <see cref="LayoutNode.SafeArea"/> takes in the bottom keeps its content clear of whichever reaches higher
-        /// where it covers the root, the keyboard or the screen's own unsafe area (the home bar). What is in the root
-        /// rises above the keyboard, while a node reaching out past the safe area at the bottom
-        /// (<see cref="LayoutNode.IgnoresSafeArea"/>) goes under it, a list there scrolling on under it and coming to
-        /// rest clear of it. Whatever tracks the keyboard sets it (the UI Text Input package's TextInputSystem does). Set
-        /// once a frame as the keyboard slides, outside any change, layout follows it exactly, every root being laid out
-        /// each frame; set inside <see cref="MotionSystem.Animate(MotionAnimation, Action, string[])"/>, what it moves
-        /// springs. Outside play mode there is no keyboard: it reads 0 and setting it does nothing, as a scroll offset
-        /// stays at the start, so one still up as play mode ends in the editor goes with it.
+        /// bottom. A node that avoids it (<see cref="LayoutNode.AvoidsKeyboard"/>), as a view laid out against UIKit's
+        /// keyboard layout guide does, keeps what it holds above it where it covers the node; nothing else moves for it,
+        /// as UIKit's safe area leaves the keyboard out. Whatever tracks the keyboard sets it (the UI Text Input package's
+        /// TextInputSystem does). Set once a frame as the keyboard slides, outside any change, layout follows it exactly,
+        /// every root being laid out each frame; set inside <see cref="MotionSystem.Animate(MotionAnimation, Action, string[])"/>,
+        /// what it moves springs. Outside play mode there is no keyboard: it reads 0 and setting it does nothing, as a
+        /// scroll offset stays at the start, so one still up as play mode ends in the editor goes with it.
         /// </summary>
         public static float KeyboardHeight
         {
@@ -775,11 +779,25 @@ namespace TimboJimbo.UI.Layout
         {
             s_visit.Clear();
             s_count = 0;
+            s_avoiding = 0;
             Visit(root, null, true, -1, root.RectTransform.GetSiblingIndex());
             if (s_count > 0)
             {
                 bool attached = FindElements(root);
-                LayoutSolver.Solve(s_solver, s_count, root.RectTransform.rect.size, SafeAreaOf(root));
+                var size = root.RectTransform.rect.size;
+                var safeArea = SafeAreaOf(root);
+                float keyboardTop = s_avoiding > 0 ? KeyboardTopOf(root) : float.PositiveInfinity;
+                bool keyboard = !float.IsPositiveInfinity(keyboardTop);
+                if (keyboard)
+                {
+                    if (s_paddings.Length < s_count)
+                        Array.Resize(ref s_paddings, s_solver.Length);
+                    for (int i = 0; i < s_count; i++)
+                        s_paddings[i] = s_solver[i].Padding;
+                }
+                LayoutSolver.Solve(s_solver, s_count, size, safeArea);
+                if (keyboard && AvoidKeyboard(keyboardTop))
+                    LayoutSolver.Solve(s_solver, s_count, size, safeArea);
                 if (attached)
                     WarnCircular();
             }
@@ -798,18 +816,16 @@ namespace TimboJimbo.UI.Layout
         // How far a root keeps its content in from each edge its SafeArea names, in its units, so that it is clear of the
         // screen's unsafe area (outside Screen.safeArea: a notch, rounded corners, the home bar), as UIKit's safe area
         // insets are: from its edge to where the safe area starts, on a side where the screen has something unsafe, and
-        // nothing elsewhere. At the bottom the keyboard is unsafe too, up to KeyboardHeight, so there it goes to the top
-        // of whichever reaches higher, as SwiftUI's keyboard safe area: a device with nothing unsafe at the bottom still
-        // keeps clear of the keyboard. Only an outermost root keeps it: one inside another tree (under a plain object in
-        // a node) is where that tree put it, which kept clear of it or chose not to. Nothing on a world space canvas, or
-        // on none. Read every pass, as Unity says nothing when it changes (a rotation, the simulator's device).
+        // nothing elsewhere. The keyboard is not part of it (see AvoidsKeyboard). Only an outermost root keeps it: one
+        // inside another tree (under a plain object in a node) is where that tree put it, which kept clear of it or chose
+        // not to. Nothing on a world space canvas, or on none. Read every pass, as Unity says nothing when it changes (a
+        // rotation, the simulator's device).
         private static Insets SafeAreaOf(NodeState root)
         {
             var edges = root.Node.SafeArea;
             if (edges == Edges.None || root.Above != null) return default;
             var area = Screen.safeArea;
-            // How far up the screen its bottom is unsafe: to the safe area's bottom, or to the keyboard's top.
-            float floor = Mathf.Max(area.yMin, KeyboardHeight);
+            float floor = area.yMin;
             bool left = area.xMin > 0.5f, right = area.xMax < Screen.width - 0.5f;
             bool bottom = floor > 0.5f, top = area.yMax < Screen.height - 0.5f;
             if (!left && !right && !bottom && !top) return default;
@@ -840,6 +856,53 @@ namespace TimboJimbo.UI.Layout
             if (top && (edges & Edges.Top) != 0)
                 safe.Top = Mathf.Clamp(max.y - area.yMax, 0f, pixels.y) * unit.y;
             return safe;
+        }
+
+        // Where a keyboard's top edge is in a root's layout space (y down from its top, in its units), up KeyboardHeight
+        // from the bottom of the screen; infinity with no keyboard up, or with one below the root, or with the root on a
+        // world space canvas or none. Any root, an outermost one or one inside another tree, as it is on screen.
+        private static float KeyboardTopOf(NodeState root)
+        {
+            float keyboard = KeyboardHeight;
+            if (keyboard <= 0.5f) return float.PositiveInfinity;
+            var rt = root.RectTransform;
+            var canvas = rt.GetComponentInParent<Canvas>();
+            if (canvas == null) return float.PositiveInfinity;
+            canvas = canvas.rootCanvas;
+            if (canvas.renderMode == RenderMode.WorldSpace) return float.PositiveInfinity;
+            var camera = canvas.renderMode == RenderMode.ScreenSpaceCamera ? canvas.worldCamera : null;
+            rt.GetWorldCorners(s_corners);
+            var min = RectTransformUtility.WorldToScreenPoint(camera, s_corners[0]);
+            var max = RectTransformUtility.WorldToScreenPoint(camera, s_corners[2]);
+            float pixels = max.y - min.y;
+            if (pixels <= 0f || keyboard <= min.y) return float.PositiveInfinity;
+            return (max.y - keyboard) * (rt.rect.height / pixels);
+        }
+
+        // After the tree's first solve: grows the given bottom padding of each node avoiding the keyboard by as much as
+        // the keyboard covers of it, as laid out, beyond what it already keeps clear of at its bottom (the safe area it
+        // reached out past, or a root's own), so that its content ends where the keyboard begins; then puts every node's
+        // padding back as given (and forgets how far it reached), to solve again from. False, and nothing changed, when
+        // the keyboard covers none of them.
+        private static bool AvoidKeyboard(float keyboardTop)
+        {
+            bool covered = false;
+            for (int i = 0; i < s_count; i++)
+            {
+                ref var node = ref s_solver[i];
+                if (!node.AvoidsKeyboard) continue;
+                float more = node.RootRect.yMax - keyboardTop - node.Reach.Bottom;
+                if (more <= 0.01f) continue;
+                s_paddings[i].Bottom += more;
+                covered = true;
+            }
+            if (!covered) return false;
+            for (int i = 0; i < s_count; i++)
+            {
+                s_solver[i].Padding = s_paddings[i];
+                s_solver[i].Reach = default;
+            }
+            return true;
         }
 
         // Adds a node and everything under it to the pass, in pre-order: to the solver while it and everything above
@@ -886,6 +949,8 @@ namespace TimboJimbo.UI.Layout
                     Array.Resize(ref s_solved, index * 2);
                 }
                 node.TryGetComponent(out ILayoutMeasurable content);
+                if (node.AvoidsKeyboard)
+                    s_avoiding++;
                 s_solver[index] = new SolverNode
                 {
                     Parent = parentIndex,
@@ -903,6 +968,7 @@ namespace TimboJimbo.UI.Layout
                     Floating = node.Floating,
                     Element = -1,
                     Ignores = node.IgnoresSafeArea,
+                    AvoidsKeyboard = node.AvoidsKeyboard,
                     Scroll = node.Scroll,
                     Content = content,
                 };

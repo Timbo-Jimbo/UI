@@ -40,6 +40,7 @@ namespace TimboJimboEditor.UI.Layout
         private SerializedProperty _padding;
         private SerializedProperty _safeArea;
         private SerializedProperty _ignoresSafeArea;
+        private SerializedProperty _avoidsKeyboard;
         private SerializedProperty _childGap;
         private SerializedProperty _direction;
         private SerializedProperty _wrap;
@@ -86,6 +87,7 @@ namespace TimboJimboEditor.UI.Layout
             _padding = serializedObject.FindProperty("_padding");
             _safeArea = serializedObject.FindProperty("_safeArea");
             _ignoresSafeArea = serializedObject.FindProperty("_ignoresSafeArea");
+            _avoidsKeyboard = serializedObject.FindProperty("_avoidsKeyboard");
             _childGap = serializedObject.FindProperty("_childGap");
             _direction = serializedObject.FindProperty("_direction");
             _wrap = serializedObject.FindProperty("_wrap");
@@ -138,6 +140,7 @@ namespace TimboJimboEditor.UI.Layout
                 EditorGUILayout.PropertyField(_safeArea);
             if (others)
                 EditorGUILayout.PropertyField(_ignoresSafeArea);
+            EditorGUILayout.PropertyField(_avoidsKeyboard);
             EditorGUILayout.PropertyField(_childGap);
             EditorGUILayout.PropertyField(_direction);
             EditorGUILayout.PropertyField(_wrap);

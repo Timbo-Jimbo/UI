@@ -32,6 +32,9 @@ namespace TimboJimbo.UI.Layout
         public int Element;
         // The edges it reaches out to its root's edge on, where it lies against the safe area (IgnoresSafeArea).
         public Edges Ignores;
+        // Whether it keeps what it holds above the keyboard (AvoidsKeyboard): the system then lays it out again with its
+        // bottom padding grown by as much of it as the keyboard covers, the solver itself knowing nothing of keyboards.
+        public bool AvoidsKeyboard;
         // Which way it scrolls: along that axis its children are never squeezed, running past its edge instead, and it
         // can itself be squeezed to nothing that way (what it shows is not what it holds).
         public ScrollAxis Scroll;
