@@ -1,7 +1,7 @@
 {
 	"name": "com.timbojimbo.ui",
 	"displayName":"UI",
-	"version": "0.3.0",
+	"version": "0.4.0",
 	"unity": "6000.0",
 	"unityRelease": "0f1",
 	"description": "UI for UGUI in one package: SDF rounded boxes and images with gradients, shadows and borders; a layout engine modelled on Clay, whose nodes move on springs with every change, as SwiftUI's withAnimation; and variants, looks kept inside a prefab and switched in place, passed down the hierarchy.",

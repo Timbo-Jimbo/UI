@@ -31,7 +31,7 @@ namespace TimboJimbo.UI.Layout
         [Tooltip("Space between its edges and its children or content.")]
         [SerializeField] private Insets _padding;
 
-        [Tooltip("A root's: the edges it keeps its content clear of the screen's notch, rounded corners and home bar on, adding as much of that as it covers to its padding, as SwiftUI keeps views in the safe area. Its own background still fills its rect.")]
+        [Tooltip("A root's: the edges it keeps its content clear of the screen's notch, rounded corners and home bar on (and at the bottom, a software keyboard), adding as much of that as it covers to its padding, as SwiftUI keeps views in the safe area. Its own background still fills its rect.")]
         [SerializeField] private Edges _safeArea = Edges.All;
 
         [Tooltip("The edges it reaches out to the screen's edge on where it lies against the safe area, its padding growing by as much so what is inside stays clear, as SwiftUI's ignoresSafeArea: a bar's colour under the notch, a list scrolling under the home bar.")]
@@ -115,11 +115,13 @@ namespace TimboJimbo.UI.Layout
         /// <summary>
         /// A root's: the edges it keeps its content clear of the screen's unsafe area on (a notch, rounded corners, the
         /// home bar: outside <see cref="Screen.safeArea"/>), as SwiftUI keeps views in the safe area; all of them by
-        /// default. It adds as much of that as it covers to its <see cref="Padding"/>, so a root away from the notch adds
-        /// nothing, and its own background (a Box on it) still fills its rect. Read every frame, so a rotation or the
-        /// Device Simulator's device is taken up at once. Only an outermost root keeps it (one inside another tree goes
-        /// by where that tree puts it), and not on a world space canvas. A node that should reach under it sets
-        /// <see cref="IgnoresSafeArea"/>. Unused on any other node.
+        /// default. At the bottom a software keyboard is unsafe too (<see cref="LayoutSystem.KeyboardHeight"/>), as in
+        /// SwiftUI's keyboard safe area, and it keeps clear of whichever reaches higher. It adds as much of that as it
+        /// covers to its <see cref="Padding"/>, so a root away from the notch adds nothing, and its own background (a Box
+        /// on it) still fills its rect. Read every frame, so a rotation, the Device Simulator's device or the keyboard
+        /// sliding is taken up at once. Only an outermost root keeps it (one inside another tree goes by where that tree
+        /// puts it), and not on a world space canvas. A node that should reach under it sets <see cref="IgnoresSafeArea"/>.
+        /// Unused on any other node.
         /// </summary>
         public Edges SafeArea { get => _safeArea; set { _safeArea = value; Changed(); } }
 

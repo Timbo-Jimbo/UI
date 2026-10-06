@@ -4,7 +4,7 @@ UI for UGUI in one package: components that draw, a layout engine whose nodes mo
 
 📐 **Layout**
 
-A layout engine modelled on [Clay](https://github.com/nicbarker/clay): fit, grow and fixed sizing, wrapping and grids, floating, the safe area, and scrolling as a UIScrollView's. See [Layout](#layout).
+A layout engine modelled on [Clay](https://github.com/nicbarker/clay): fit, grow and fixed sizing, wrapping and grids, floating, the safe area (a software keyboard's too), and scrolling as a UIScrollView's. See [Layout](#layout).
 
 🌀 **Motion**
 
@@ -264,6 +264,12 @@ list.IgnoresSafeArea = Edges.Bottom;                            // rows scroll u
 
 A node floating against the root sits inside the safe area. The Game view's safe area is the whole screen: the Simulator shows a phone's.
 
+A software keyboard is part of the safe area at the bottom, as in SwiftUI's keyboard safe area: `LayoutSystem.KeyboardHeight` says how far up the screen it covers (screen pixels), and a root keeps its content clear of whichever reaches higher, the keyboard or the home bar. A chat's composer rises above the keyboard while the page's background reaches under it, and a list ignoring the bottom scrolls on under it and comes to rest clear of it. Set it once a frame as the keyboard slides and layout follows it exactly, or inside `Animate` to spring. It's general: the UI Text Input package sets it for the platform's keyboard, and anything tracking a keyboard can.
+
+```csharp
+LayoutSystem.KeyboardHeight = keyboardTop; // screen pixels up from the bottom, each frame it moves
+```
+
 ## Animated changes
 
 A change made inside `MotionSystem.Animate` moves every node it gives somewhere new on springs ([Motion](#motion)); any other change goes there at once.
@@ -384,9 +390,10 @@ Keyboard and gamepad focus over UGUI's Selectables. They still do the selecting,
 - **Moves by where things are drawn:** a Selectable left on Automatic navigation is pointed at its neighbours, what lies in line with it first, then the nearest. When several are equally near (up from a wide row into a row of tabs), focus goes back to the one its scope last focused, else the scope's Default Focus, else the first in reading order. Explicit and None navigation are left as authored, and a slider or scrollbar keeps its own axis for changing its value. A control that takes moves itself (scrolling what it shows, swiping something away, moving a card) says which with `IFocusMoveHandler`: focus stays on it, and the indicator doesn't nudge.
 - **Comes back:** when what has focus is hidden, disabled or destroyed, focus goes back where it belongs: what the scope around it picks, or the next scope out's when nothing is left there. Something moving in a change that isn't interactive keeps focus until it lands (a photo flying home to its slot). Navigating with nothing focused puts focus somewhere first.
 - **Tab and Shift-Tab** go through reading order.
+- **Keys a control keeps:** a control that takes Submit, Cancel or Tab itself says which with `IFocusKeyHandler`, and focus leaves those keys to it: Submit enters no group, Cancel closes no sheet, Tab moves nowhere, as a key goes to UIKit's first responder first. A text field being edited keeps Enter and Escape: Escape stops the editing, and only the next one closes the sheet it's in.
 - **Scrolls into view:** what takes focus is scrolled into view in every scroll container it's in.
 - **Shows only when it should:** `FocusSystem.FocusVisible` is on after keyboard or gamepad input and off after a click or a touch, as CSS's `:focus-visible`. Variant States' Focused follows it.
-- **Wakes before it moves:** while focus doesn't show, the first direction (or Tab) only shows it, on what has it, brought into view. Nothing moves until the next press: what has focus may have changed unseen, with the pointer.
+- **Wakes before it moves:** while focus doesn't show, the first direction (or Tab) only shows it, on what has it, brought into view. Nothing moves until the next press: what has focus may have changed unseen, with the pointer. Tab out of a control keeping keys for itself (a text field being edited, clicked into) moves at once, as in a browser: what's being typed into is plainly where focus is.
 
 A **Focus Scope** groups part of the UI:
 

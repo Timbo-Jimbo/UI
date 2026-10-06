@@ -1,4 +1,4 @@
-## [Unreleased]
+## [0.4.0] - 06/10/2026
 
 ### Added
 
@@ -6,6 +6,8 @@
 - `FocusScope`: a Section groups part of the UI that focus moves in and out of freely, landing on whatever is nearest, as SwiftUI's focusSection, or with `EnterAt` `LastFocusedOrDefault` on what it last focused, else its default (`DefaultFocus`, else its first in reading order), as UIKit's preferred focus and remembersLastFocusedIndexPath; a Modal keeps focus inside it, takes it as it appears and gives it back as it goes, as UIKit restores focus after a modal transition. A Group is one stop until Submit enters it and Back leaves it, as Xbox's focus engagement, its stop its own object or a Selectable elsewhere it is entered through (`EnterThrough`, a sidebar's button for its page); groups nest. The way into each group or modal focus is inside (a group's stop, what opened a modal) stays ringed, dimmed. A scope that takes Cancel (Escape, a gamepad's B, Android's Back) raises `Cancelled`
 - `IFocusMoveHandler`: a control that takes some moves itself (scrolling, swiping, moving a card) says which, and focus stays on it for them, as a slider keeps its own axis
 - Focus indicators: a `FocusScope` with `NewIndicator` makes one from `IndicatorPrefab` (or the nearest scope above it's) as the last child of `IndicatorParent` (or itself), attached to what has focus inside it while focus shows. It springs from one focused element to the next on its own animation; moving into another indicator's scope hides it and shows that one where focus lands. A move that finds nothing to go to nudges it that way
+- `IFocusKeyHandler` and `FocusKey` (general): a control that takes Submit, Cancel or Tab itself says which, and `FocusSystem` leaves those keys to it entirely (Submit enters no group, Cancel closes no sheet, Tab moves focus nowhere), as a key press goes to UIKit's first responder before anything up the responder chain. A text field being edited keeps Enter and Escape. It goes by what the control said as the last frame ended, before the key came in, so the Escape that stops a field's editing doesn't also close the sheet it's in. Tab out of a control keeping keys moves at once, even while focus doesn't show, as out of a browser's text field
+- `LayoutSystem.KeyboardHeight` (general): how far up from the bottom of the screen a software keyboard covers it, in screen pixels, part of the safe area at the bottom as SwiftUI's keyboard safe area is. A root whose `SafeArea` takes in the bottom keeps its content clear of whichever reaches higher where it covers the root, the keyboard or the screen's unsafe area, even on a device with nothing unsafe at the bottom; everything the safe area does follows it (`IgnoresSafeArea` reaching under it, scroll insets, floating against the root, `ScrollIntoView`). Set once a frame as the keyboard slides, layout follows it exactly; inside `Animate`, it springs. The UI Text Input package sets it for the platform's keyboard
 
 ### Changed
 

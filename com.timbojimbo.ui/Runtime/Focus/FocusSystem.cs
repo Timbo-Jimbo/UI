@@ -22,12 +22,15 @@ namespace TimboJimbo.UI.Focus
     /// (<see cref="FocusScope.EnterAt"/>) is entered there; a modal takes focus as it appears and gives it back as it goes;
     /// Submit on a group's stop (its own, or the one it is entered through) enters it and Back leaves it; focus lost (its object hidden, disabled or gone) comes back to where
     /// it belongs; Tab and Shift-Tab go through reading order; Cancel goes to the scope that takes it; and what takes focus
-    /// is scrolled into view. <see cref="FocusVisible"/> says whether to draw focus, as CSS's :focus-visible: after
-    /// keyboard or gamepad input, not after a click or a touch. A direction (or Tab) pressed while it does not show only
-    /// shows it, on what has focus, and moves nothing: where focus is may have changed unseen, with the pointer. While it
-    /// shows, a scope's focus indicator (<see cref="FocusScope.NewIndicator"/>) is drawn on what has focus, and nudged
-    /// towards where a move found nothing to go to; each group or modal focus is inside keeps the indicator on its way in
-    /// (the group's stop, what opened the modal) there, dimmed.
+    /// is scrolled into view. What has focus can keep Submit, Cancel or Tab for itself (<see cref="IFocusKeyHandler"/>: a
+    /// text field being edited keeps Enter and Escape), and moves (<see cref="IFocusMoveHandler"/>).
+    /// <see cref="FocusVisible"/> says whether to draw focus, as CSS's :focus-visible: after keyboard or gamepad input,
+    /// not after a click or a touch. A direction (or Tab) pressed while it does not show only shows it, on what has focus,
+    /// and moves nothing: where focus is may have changed unseen, with the pointer. Tab out of what keeps keys for itself
+    /// moves at once: what is being typed into is plainly where focus is. While it shows, a scope's focus indicator
+    /// (<see cref="FocusScope.NewIndicator"/>) is drawn on what has focus, and nudged towards where a move found nothing to
+    /// go to; each group or modal focus is inside keeps the indicator on its way in (the group's stop, what opened the
+    /// modal) there, dimmed.
     /// </summary>
     public static partial class FocusSystem
     {
@@ -65,6 +68,13 @@ namespace TimboJimbo.UI.Focus
         private static bool s_moving;
         private static bool s_hooked;
 
+        // What had focus as the last frame ended, if it kept keys for itself then (IFocusKeyHandler), and which of Submit,
+        // Cancel and Tab.
+        private static GameObject s_keyHolder;
+        private static bool s_takesSubmit;
+        private static bool s_takesCancel;
+        private static bool s_takesTab;
+
         // The input module's move action, watched for a direction pressed while focus does not show; and, while one that
         // woke focus is held, the EventSystem kept from sending moves and whether it sent them before.
         private static InputAction s_watched;
@@ -97,6 +107,10 @@ namespace TimboJimbo.UI.Focus
             s_visible = false;
             s_shown = false;
             s_moving = false;
+            s_keyHolder = null;
+            s_takesSubmit = false;
+            s_takesCancel = false;
+            s_takesTab = false;
             if (s_watched != null)
                 s_watched.performed -= OnMovePressed;
             s_watched = null;
@@ -219,6 +233,14 @@ namespace TimboJimbo.UI.Focus
             var submitAction = module != null && module.submit != null ? module.submit.action : null;
             bool submit = submitAction != null && submitAction.WasPressedThisFrame();
 
+            // A key kept by what keeps keys for itself (IFocusKeyHandler: a text field being edited keeps Enter and Escape)
+            // is left to it entirely. It said so as the last frame ended, before this frame's keys came in, rather than
+            // now: it may have acted on the key since (Escape stops the field's editing, after which it keeps Escape no
+            // longer).
+            if (s_takesSubmit) submit = false;
+            if (s_takesCancel) cancel = false;
+            if (s_takesTab) tab = false;
+
             // What the input module, or a click, left focused.
             var started = events.currentSelectedGameObject;
 
@@ -276,9 +298,11 @@ namespace TimboJimbo.UI.Focus
                 // Navigation with nothing focused puts focus somewhere, and does not move it on.
                 Select(events, Target(container) ?? Last() ?? First(container));
             }
-            else if (tab && current != null && s_shown)
+            else if (tab && current != null && (s_shown || current.gameObject == s_keyHolder))
             {
-                // Tab while focus does not show only shows it, as a direction does.
+                // Tab while focus does not show only shows it, as a direction does; but out of what keeps keys for itself
+                // (a field being edited, clicked into) it moves on at once, as out of a browser's text field: what is
+                // being typed into is plainly where focus is.
                 Select(events, Tab(current, keyboard.shiftKey.isPressed));
             }
 
@@ -323,6 +347,21 @@ namespace TimboJimbo.UI.Focus
                 s_muted = null;
             }
             s_shown = s_visible;
+            NoteKeysTaken(events.currentSelectedGameObject);
+        }
+
+        // Which keys what has focus keeps for itself as the frame ends (IFocusKeyHandler), for those pressed in the next
+        // frame.
+        private static void NoteKeysTaken(GameObject selected)
+        {
+            s_keyHolder = null;
+            s_takesSubmit = s_takesCancel = s_takesTab = false;
+            if (selected == null || !selected.TryGetComponent(out IFocusKeyHandler handler)) return;
+            s_takesSubmit = handler.HandlesKey(FocusKey.Submit);
+            s_takesCancel = handler.HandlesKey(FocusKey.Cancel);
+            s_takesTab = handler.HandlesKey(FocusKey.Tab);
+            if (s_takesSubmit || s_takesCancel || s_takesTab)
+                s_keyHolder = selected;
         }
 
         private static Selectable Focused(GameObject selected) =>
