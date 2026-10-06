@@ -20,7 +20,7 @@ Keyboard and gamepad focus that only lands on what can be seen and used, moves b
 
 🟦 **Box**
 
-A `Graphic` that draws a rounded box as a signed distance field: per-corner radii, a continuous corner curvature (circle → parabola → cosine → cubic), an inset stroke, a blur radius and an offset. One instance is one effect, so a panel, its drop shadow and its border are three sibling objects.
+A `Graphic` that draws a rounded box as a signed distance field: per-corner radii, a continuous corner curvature (circle → parabola → cosine → cubic), corners concentric with the box around it, and an inset. It draws that shape in up to three layers, a shadow, a fill and a border, each a colour or a gradient, filled or a ring, crisp or soft, moved and grown on its own, so a card with a drop shadow and a gradient border is one object and one draw call.
 
 🖼️ **Img**
 
@@ -32,7 +32,7 @@ Fill a box with a three-stop gradient (from, via, to), or tint a sprite with a t
 
 ⚡ **One Draw Call**
 
-Every parameter lives in vertex data and all instances of a component share a single material, so shadows, panels, borders and icons batch together.
+Every parameter lives in vertex data and all instances of a component share a single material, so boxes, their layers and icons batch together.
 
 🎨 **Blend Modes**
 
@@ -78,33 +78,35 @@ You can also add it directly from GitHub. Note that you won't be able to receive
 
 Add **Timbo Jimbo > UI > Box** to a `RectTransform`. The component adds the extra canvas shader channels it needs automatically.
 
-A rounded card with a shadow and a border is three objects with the same stretch anchors:
-
-| Object | Colour | Corner Radius | Blur | Stroke | Offset |
-|---|---|---|---|---|---|
-| Shadow | black, 50% alpha | 24 | 24 | 0 | (0, -12) |
-| Panel | white | 24 | 0 | 0 | (0, 0) |
-| Border | accent | 24 | 0 | 2 | (0, 0) |
+A Box is a shape painted in layers. The shape is the box's own:
 
 - **Corner Radius** is clamped to half the short side, so a short wide box becomes a pill and a square becomes a circle.
 - **Corner Shape** is a row of preset buttons (Circle, Parabola, Cosine, Cubic) that set the **Curvature** slider. A curvature between presets highlights no button. Near the size limit the shader eases the curvature back to circular so pills stay clean.
 - **Concentric** takes the corner radii and curvature from the nearest parent Box instead, matched per corner so the two rounded rects stay concentric across the gap between them. A child inset by `d` on a corner gets that corner's parent radius minus `d`; a child outset by `d` (larger than the parent) gets the parent radius plus `d`, so the rounded rects stay parallel whether the child is smaller or larger (never below 0). It resolves recursively, so a concentric box under another concentric box still matches the outermost plain box, and it tracks the parent live as the parent's radii, curvature, size or inset change. This assumes the child and parent share a canvas and axis alignment (the normal case). With uneven offsets a corner follows the side that deviates most from the parent, since our circular corners cannot follow CSS's elliptical ones.
 - **Inset** offsets the drawn box within its `RectTransform`, uniformly or per side, in canvas units. Positive shrinks it inward; negative grows it outward past the `RectTransform`, so the box (and any mask taken from it) can spill beyond its layout rect. The corners stay concentric with the full rect, and only the generated mesh changes: the `RectTransform` and layout are untouched. Because a `Mask` stencils from the drawn mesh, an inset Box masks its children to the offset shape without a padded child object, which keeps the masked content an immediate child for layout groups. Note this also offsets the box's own visible fill; to change only the stencil while keeping the fill in place, turn off **Show Mask Graphic** and draw the fill with a sibling, or wait for the planned soft-mask path.
-- **Stroke Width** draws a border ring instead of a fill. A positive width draws the ring inside the edge (CSS border semantics), so it can share the panel's rect; a negative width draws it outside the edge, spilling past the box (the quad grows to fit).
-- **Blur Radius** softens the edge; the quad grows to make room.
-- **Offset** moves the drawn box without moving the `RectTransform`.
-- **Masking** makes the box a UGUI stencil mask for its children, and manages the `Mask` component for you (it appears below the Box, shown but not editable). **None** does not mask. **Draw and Mask** draws the box and clips its children to its shape. **Mask Only** clips the children without drawing the box, so its **Color**, **Gradient** and **Blur** are hidden and treated as white / off / 0, giving a crisp stencil. Combined with **Inset**, a Mask Only box clips its immediate children to an inset rounded shape without a padded wrapper object.
+The **Layers** paint it, back to front: **Shadow**, **Fill** and **Border**. Each row has a toggle that turns the layer on and folds open to its settings. The three are the same kind of layer (`BoxLayer`), named for what they are usually for, so a shadow can as well be a glow ring:
+
+- **Color** paints the layer; the Box's own **Color** tints every layer on top, and CanvasGroup alpha fades them all.
+- **Gradient** fills the layer with a three-stop gradient instead (see below), multiplied by its colour.
+- **Stroke** draws a ring along the edge instead of filling the shape. A positive width draws it inside the edge (CSS border semantics); a negative one outside, spilling past the box (the quad grows to fit).
+- **Blur** softens the edge, for a soft shadow or a glow; the quad grows to make room.
+- **Offset** moves the layer without moving the box, as a shadow's offset.
+- **Spread** grows the layer past the shape (or shrinks it, negative), with its corners kept concentric, as a shadow's spread.
+
+A new Box has its Fill on in white and the others off, so a plain box is coloured by its **Color**. A card with a drop shadow and a border is one Box: Shadow on (black, half alpha, Blur 24, Offset (0, -12)), Fill on, Border on (Stroke 2). For more than one of a layer, stack Boxes as separate objects.
+
+- **Masking** makes the box a UGUI stencil mask for its children, and manages the `Mask` component for you (it appears below the Box, shown but not editable). **None** does not mask. **Draw and Mask** draws the box and clips its children to everything it draws, a shadow or a ring outside the edge included, so a box that casts a shadow and clips its content clips with a Mask Only child. **Mask Only** clips the children without drawing the box: it draws the plain shape, crisp and opaque, in place of its layers, so it writes a clean stencil. Combined with **Inset**, a Mask Only box clips its immediate children to an inset rounded shape without a padded wrapper object.
 
 ## Gradient
 
-Enable **Gradient** on any box to fill it with a three-stop gradient instead of the solid colour.
+Enable **Gradient** on any layer to fill it with a three-stop gradient instead of its solid colour.
 
 - **Interpolation** is the colour space the stops blend through: RGB, HSV, OkLab or OkLCh, the same options as the Property Bindings package. OkLab gives the most even perceptual blend.
 - **Angle** is in degrees; 0 runs left to right, 90 runs bottom to top.
 - The stops are edited on the **preview bar**: **From** and **To** sit at the ends and, with **Use Via Stop** on, a **Via** chevron appears in the middle. Drag the Via chevron to move it, and click any chevron to open the colour picker. The bar previews the real interpolation over a checker, so a stop's alpha reads correctly. **Via Position** is also a numeric slider for precise placement.
-- The box's **Color** multiplies the whole gradient as a tint, and CanvasGroup alpha fades every stop, so gradients respond to colour and fades the same way a solid box does.
+- The layer's **Color** and the Box's **Color** multiply the whole gradient as a tint, and CanvasGroup alpha fades every stop, so gradients respond to colour and fades the same way a solid layer does.
 
-Gradients compose with everything else: a rounded, stroked, blurred box can also be a gradient, and gradient boxes still batch into one draw call.
+Gradients compose with everything else: a rounded, stroked, blurred layer can also be a gradient (a gradient border over a gradient fill), and gradient boxes still batch into one draw call.
 
 ## Img
 
@@ -176,21 +178,25 @@ Very large minification (a 512 px icon at 32 px) is limited by icon detail rathe
 
 ```csharp
 var box = gameObject.AddComponent<Box>();
-box.color = Color.white;
+box.color = Color.white;                  // tints every layer
 box.SetCornerRadius(24f);                 // or box.CornerRadii = new Vector4(tl, tr, br, bl);
 box.CornerCurvature = CornerShape.Cosine.ToCurvature();
-box.StrokeWidth = 2f;
-box.BlurRadius = 0f;
-box.Offset = Vector2.zero;
 
-// Gradient fill
-box.GradientEnabled = true;
-box.GradientMode = ColorInterpolationMode.OkLab;   // from TimboJimbo.Core
-box.GradientAngle = 90f;                            // bottom to top
-box.GradientFrom = Color.magenta;
-box.GradientVia = Color.white;                      // set GradientUseVia = false to skip
-box.GradientTo = Color.cyan;
-box.GradientViaPosition = 0.5f;
+// The layers are structs: build one and assign it.
+box.Shadow = new BoxLayer(new Color(0f, 0f, 0f, 0.5f)) { Blur = 24f, Offset = new Vector2(0f, -12f) };
+box.Border = new BoxLayer(accent) { Stroke = 2f };
+
+// A gradient fill
+var fill = box.Fill;
+fill.GradientEnabled = true;
+fill.GradientMode = ColorInterpolationMode.OkLab;   // from TimboJimbo.Core
+fill.GradientAngle = 90f;                            // bottom to top
+fill.GradientFrom = Color.magenta;
+fill.GradientUseVia = true;
+fill.GradientVia = Color.white;
+fill.GradientTo = Color.cyan;
+fill.GradientViaPosition = 0.5f;
+box.Fill = fill;
 
 // Blend mode (each mode resolves to its own shared material)
 box.BlendMode = UiBlendMode.Additive;
