@@ -131,10 +131,11 @@ namespace TimboJimbo.UI.Layout
         // How far up the screen a software keyboard covers it, in screen pixels (KeyboardHeight).
         private static float s_keyboardHeight;
 
-        // How many nodes of the tree being laid out avoid the keyboard (AvoidsKeyboard), and every solver node's
-        // padding as given, from before a solve that grows some, to solve again from.
+        // How many nodes of the tree being laid out avoid the keyboard (AvoidsKeyboard), every solver node's padding as
+        // given, from before a solve that grows some, to solve again from, and which grow it.
         private static int s_avoiding;
         private static Insets[] s_paddings = new Insets[64];
+        private static bool[] s_lifting = new bool[64];
 
         // Statics survive play mode sessions when domain reload is off.
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
@@ -678,7 +679,8 @@ namespace TimboJimbo.UI.Layout
                         UpdateAway(state, false, null);
                         if (state.Leaving)
                             SettleLeaving(state);
-                        state.PassLeaving = state.Leaving || (state.PassParent != null && state.PassParent.PassLeaving);
+                        var above = AboveOf(state);
+                        state.PassLeaving = state.Leaving || (above != null && above.PassLeaving);
                         if (state.Flight != null && HasLanded(state))
                         {
                             if (state.Flight.PairHalf)
@@ -879,19 +881,24 @@ namespace TimboJimbo.UI.Layout
         // After the tree's first solve: grows the given bottom padding of each node avoiding the keyboard by as much as
         // the keyboard covers of it, as laid out, beyond what it already keeps clear of at its bottom (the safe area it
         // reached out past, or a root's own), so that its content ends where the keyboard begins; then puts every node's
-        // padding back as given (and forgets how far it reached), to solve again from. False, and nothing changed, when
-        // the keyboard covers none of them.
+        // padding back as given (and forgets how far it reached), to solve again from. One in the flow of another that
+        // grows is lifted clear by that one's growing (it is inside its content), so it adds nothing of its own, or the
+        // keyboard would count twice. False, and nothing changed, when the keyboard covers none of them.
         private static bool AvoidKeyboard(float keyboardTop)
         {
+            if (s_lifting.Length < s_count)
+                Array.Resize(ref s_lifting, s_solver.Length);
             bool covered = false;
+            // In pre-order, so whether a node above it grows is known.
             for (int i = 0; i < s_count; i++)
             {
                 ref var node = ref s_solver[i];
+                s_lifting[i] = false;
                 if (!node.AvoidsKeyboard) continue;
                 float more = node.RootRect.yMax - keyboardTop - node.Reach.Bottom;
-                if (more <= 0.01f) continue;
+                if (more <= 0.01f || InLiftedFlow(i)) continue;
                 s_paddings[i].Bottom += more;
-                covered = true;
+                s_lifting[i] = covered = true;
             }
             if (!covered) return false;
             for (int i = 0; i < s_count; i++)
@@ -900,6 +907,18 @@ namespace TimboJimbo.UI.Layout
                 s_solver[i].Reach = default;
             }
             return true;
+        }
+
+        // Whether a node is in the flow of one whose padding grows for the keyboard (no floating node on the way up to
+        // it, which would be placed against a rect rather than inside its content).
+        private static bool InLiftedFlow(int index)
+        {
+            for (int i = index; i > 0; i = s_solver[i].Parent)
+            {
+                if (s_solver[i].Floating.IsFloating) return false;
+                if (s_lifting[s_solver[i].Parent]) return true;
+            }
+            return false;
         }
 
         // Adds a node and everything under it to the pass, in pre-order: to the solver while it and everything above
@@ -931,10 +950,11 @@ namespace TimboJimbo.UI.Layout
             // shown and slid in at once). One still on its way out, or inside one that is, is drawn, and turns back
             // from where it is when shown again. PassIndex and PassLeaving are still the last pass's here, which is
             // what was drawn: one moved out from under a leaving node moves on from where it is, rather than being
-            // put at its new place at once as though it had not been drawn.
+            // put at its new place at once as though it had not been drawn. For a root inside another tree, what is
+            // above it is the node it is inside (AboveOf).
             bool cameBack = state.PassIndex < 0 && !state.PassLeaving;
-            state.PassLeaving = state.Leaving || (parent != null && parent.PassLeaving);
-            state.PassUnseen = !state.Seen || cameBack || (parent != null && parent.PassUnseen);
+            state.PassLeaving = state.Leaving || (above != null && above.PassLeaving);
+            state.PassUnseen = !state.Seen || cameBack || (above != null && above.PassUnseen);
 
             int index = -1;
             if (inLayout && node.Display != DisplayMode.None)
@@ -1047,6 +1067,12 @@ namespace TimboJimbo.UI.Layout
             Debug.LogWarning($"{node.name}.Floating.Element {why}, so {node.name} is placed against its parent instead. (Said once for it.)", node);
         }
 
+        // What is above a node in this pass, for showing and hiding: its parent, or for a root inside another tree, the
+        // node it is inside (Above), whose tree is laid out first. So such a root comes and goes with that node, as any
+        // node inside it does, rather than playing its own effect over that node's: only the topmost node a change
+        // shows or hides plays one.
+        private static NodeState AboveOf(NodeState state) => state.PassParent ?? state.Above;
+
         // The root of the layout tree a node is in.
         private static LayoutNode RootOf(LayoutNode node)
         {
@@ -1080,10 +1106,11 @@ namespace TimboJimbo.UI.Layout
             var scale = new Vector2(parent != null ? node.Scale : 1f, 0f);
             // Inside a held node it stays where it was stopped with it; what was not drawn has nothing to hold.
             state.PassFrozen = parent != null && (parent.Held || parent.PassFrozen) && !state.PassUnseen;
-            bool aboveLeaving = parent != null && parent.PassLeaving;
+            var above = AboveOf(state);
+            bool aboveLeaving = above != null && above.PassLeaving;
             state.PassLeaving = state.Leaving || aboveLeaving;
-            state.PassAppearing = parent != null && parent.PassAppearing;
-            bool topmost = parent == null || (!parent.PassUnseen && !parent.PassAppearing);
+            state.PassAppearing = above != null && above.PassAppearing;
+            bool topmost = above == null || (!above.PassUnseen && !above.PassAppearing);
 
             // Met for the first time, it starts where it goes, shown or not as its Display says; out of layout, where
             // its rect is. Inside Animate the topmost of what appears plays its entrance from its away pose.
@@ -1201,13 +1228,13 @@ namespace TimboJimbo.UI.Layout
                 var move = state.PassUnseen ? null : transition;
                 if (laidOut)
                 {
-                    if (!state.Thrown && centre != state.Position.Target)
-                        Retarget(state, state.Position, centre, move);
-                    if (!state.Thrown && !state.HoldSize && size != state.Size.Target)
-                        Retarget(state, state.Size, size, move);
+                    if (!state.Thrown)
+                        GiveTarget(state, state.Position, centre, move);
+                    if (!state.Thrown && !state.HoldSize)
+                        GiveTarget(state, state.Size, size, move);
                 }
-                if (!state.HoldScale && scale != state.Scale.Target)
-                    Retarget(state, state.Scale, scale, move);
+                if (!state.HoldScale)
+                    GiveTarget(state, state.Scale, scale, move);
 
                 // The topmost of what was not drawn plays its entrance inside a change; the rest of what was not drawn,
                 // and what is shown inside something starting to be drawn in the same change, is shown or not at once;
@@ -1245,6 +1272,22 @@ namespace TimboJimbo.UI.Layout
 
                 UpdateAway(state, !state.PassUnseen, move);
                 Arrange(state);
+            }
+        }
+
+        // Gives a node's position, size or scale where it goes: for a node not drawn as the pass starts, there at once, even
+        // on its way somewhere from before it went (still moving where it was not seen, and held by the change it was
+        // moving for, which is let go of); otherwise as Retarget gives it, when it is somewhere new.
+        private static void GiveTarget(NodeState state, Spring spring, Vector2 target, MotionTransition move)
+        {
+            if (state.PassUnseen)
+            {
+                if (spring.Moving || target != spring.Target)
+                    PutAt(spring, target);
+            }
+            else if (target != spring.Target)
+            {
+                Retarget(state, spring, target, move);
             }
         }
 
@@ -1332,6 +1375,17 @@ namespace TimboJimbo.UI.Layout
             position.Target = PointTo(from, to, position.Target - scrolledOut) + scrolledIn;
             position.Velocity = VectorTo(from, to, position.Velocity);
             state.Away = VectorTo(from, to, state.Away);
+            // Its size too, in the new one's units, so between parents drawn at different scales it does not jump in size
+            // as it sets off.
+            var unitTo = UnitOf(to);
+            if (unitTo.x > 1e-6f && unitTo.y > 1e-6f)
+            {
+                var units = UnitOf(from) / unitTo;
+                var sized = state.Size;
+                sized.Value = Vector2.Scale(sized.Value, units);
+                sized.Target = Vector2.Scale(sized.Target, units);
+                sized.Velocity = Vector2.Scale(sized.Velocity, units);
+            }
             if (transition != null)
                 Board(state, old);
         }
@@ -1544,7 +1598,8 @@ namespace TimboJimbo.UI.Layout
             if (state.Follows != null) return;
             if (state.Riding)
             {
-                if (state.PassParent != null && state.PassParent.PassLeaving) return;
+                var above = AboveOf(state);
+                if (above != null && above.PassLeaving) return;
                 PutAt(state.Shown, Vector2.zero);
                 PutAt(state.Opacity, new Vector2(OpacityTargetOf(state), 0f));
             }

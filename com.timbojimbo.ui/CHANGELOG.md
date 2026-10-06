@@ -4,7 +4,7 @@ Needs Core's next version (`ColorExtra.Lerp(mode, from, to, t)`).
 
 ### Added
 
-- `LayoutNode.AvoidsKeyboard`: keeps what a node holds above a software keyboard (`LayoutSystem.KeyboardHeight`), as a view laid out against UIKit's keyboard layout guide does. Where the keyboard covers the node, as it is laid out, its bottom padding grows by as much (counting what it already keeps clear of the home bar), so its content rises with the keyboard while it keeps its rect, its background reaching under the keyboard. A tree holding such a node that the keyboard covers is solved a second time with that padding
+- `LayoutNode.AvoidsKeyboard`: keeps what a node holds above a software keyboard (`LayoutSystem.KeyboardHeight`), as a view laid out against UIKit's keyboard layout guide does. Where the keyboard covers the node, as it is laid out, its bottom padding grows by as much (counting what it already keeps clear of the home bar), so its content rises with the keyboard while it keeps its rect, its background reaching under the keyboard. A tree holding such a node that the keyboard covers is solved a second time with that padding. One in the flow of another that grows adds nothing of its own, being lifted clear by it, so nesting them never counts the keyboard twice
 
 ### Changed
 
@@ -14,6 +14,9 @@ Needs Core's next version (`ColorExtra.Lerp(mode, from, to, t)`).
 ### Fixed
 
 - In play mode, every change to the hierarchy (an object made, destroyed or moved, which a dynamic UI does every frame) had the variant preview repaint every editor view, though nothing is previewed in play mode. It no longer samples there; a variant set's inspector is drawn again as the set switches, and a breakpoints inspector's readout as what it reads changes
+- A node shown again after Display None while its springs were still on their way (a row hidden and shown by a filter during an animation) slid in from where they had got to unseen, still held by the change it had been moving for; it now appears where it goes, as a node not drawn always did at rest
+- A root inside another tree (a node under a plain object in a node) played its own entrance and exit over those of the node it is inside when both changed together, so a card added inside Animate faded its content in twice, lagging its background; it now comes and goes with that node, as any node inside it does, and leaving with it, it takes focus no more
+- A node moved inside Animate between parents drawn at different scales jumped in size as it set off: its size is carried into the new parent's units, as its position always was
 
 ## [0.4.0] - 06/10/2026
 
