@@ -1,5 +1,7 @@
 ## [Unreleased]
 
+Needs Core's next version (`ColorExtra.Lerp(mode, from, to, t)`).
+
 ### Added
 
 - `LayoutNode.AvoidsKeyboard`: keeps what a node holds above a software keyboard (`LayoutSystem.KeyboardHeight`), as a view laid out against UIKit's keyboard layout guide does. Where the keyboard covers the node, as it is laid out, its bottom padding grows by as much (counting what it already keeps clear of the home bar), so its content rises with the keyboard while it keeps its rect, its background reaching under the keyboard. A tree holding such a node that the keyboard covers is solved a second time with that padding
@@ -7,6 +9,7 @@
 ### Changed
 
 - A software keyboard is no longer part of a root's safe area: nothing moves for it unless it opts in (`AvoidsKeyboard`), as in UIKit. Before, every root kept its content clear of it, so the screen behind a page being popped, and a tab bar floating in it, slid down as the keyboard hid during the transition
+- The gradient preview in the Box and Img inspectors interpolates through Core's `ColorExtra.Lerp(mode, ...)`, so it and every other colour transition share one switch over the modes; needs Core's next version
 
 ## [0.4.0] - 06/10/2026
 

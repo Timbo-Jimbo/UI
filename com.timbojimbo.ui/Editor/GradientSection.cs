@@ -318,24 +318,12 @@ namespace TimboJimboEditor.UI
         private static Color EvalStop(Color from, Color via, Color to, float viaPos, bool useVia, ColorInterpolationMode mode, float t)
         {
             if (!useVia)
-                return LerpMode(from, to, t, mode);
+                return ColorExtra.Lerp(mode, from, to, t);
 
             if (t <= viaPos)
-                return LerpMode(from, via, viaPos > 1e-5f ? t / viaPos : 0f, mode);
+                return ColorExtra.Lerp(mode, from, via, viaPos > 1e-5f ? t / viaPos : 0f);
 
-            return LerpMode(via, to, viaPos < 1f - 1e-5f ? (t - viaPos) / (1f - viaPos) : 1f, mode);
-        }
-
-        private static Color LerpMode(Color a, Color b, float t, ColorInterpolationMode mode)
-        {
-            t = Mathf.Clamp01(t);
-            return mode switch
-            {
-                ColorInterpolationMode.RGB => Color.Lerp(a, b, t),
-                ColorInterpolationMode.HSV => ColorExtra.LerpHSV(a, b, t),
-                ColorInterpolationMode.OkLab => ColorExtra.LerpOkLab(a, b, t),
-                _ => ColorExtra.LerpOkLCh(a, b, t),
-            };
+            return ColorExtra.Lerp(mode, via, to, viaPos < 1f - 1e-5f ? (t - viaPos) / (1f - viaPos) : 1f);
         }
 
         private static void DrawChecker(Rect r)

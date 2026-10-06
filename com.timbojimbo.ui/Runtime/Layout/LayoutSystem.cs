@@ -830,20 +830,10 @@ namespace TimboJimbo.UI.Layout
             bool bottom = floor > 0.5f, top = area.yMax < Screen.height - 0.5f;
             if (!left && !right && !bottom && !top) return default;
 
-            var rt = root.RectTransform;
-            var canvas = rt.GetComponentInParent<Canvas>();
-            if (canvas == null) return default;
-            canvas = canvas.rootCanvas;
-            if (canvas.renderMode == RenderMode.WorldSpace) return default;
-            var camera = canvas.renderMode == RenderMode.ScreenSpaceCamera ? canvas.worldCamera : null;
-
             // Its rect on screen, in pixels (y up), and how many of its units a pixel is each way.
-            rt.GetWorldCorners(s_corners);
-            var min = RectTransformUtility.WorldToScreenPoint(camera, s_corners[0]);
-            var max = RectTransformUtility.WorldToScreenPoint(camera, s_corners[2]);
+            if (!OnScreen(root.RectTransform, out var min, out var max)) return default;
             var pixels = max - min;
-            if (pixels.x <= 0f || pixels.y <= 0f) return default;
-            var size = rt.rect.size;
+            var size = root.RectTransform.rect.size;
             var unit = new Vector2(size.x / pixels.x, size.y / pixels.y);
 
             var safe = default(Insets);
@@ -864,19 +854,26 @@ namespace TimboJimbo.UI.Layout
         private static float KeyboardTopOf(NodeState root)
         {
             float keyboard = KeyboardHeight;
-            if (keyboard <= 0.5f) return float.PositiveInfinity;
-            var rt = root.RectTransform;
+            if (keyboard <= 0.5f || !OnScreen(root.RectTransform, out var min, out var max) || keyboard <= min.y)
+                return float.PositiveInfinity;
+            return (max.y - keyboard) * (root.RectTransform.rect.height / (max.y - min.y));
+        }
+
+        // Where a root's rect is on screen, in pixels (y up), from its bottom-left corner to its top-right: false on a world
+        // space canvas or none, where the screen's edges and keyboard have nothing to say about it, or when it has no size
+        // on screen.
+        private static bool OnScreen(RectTransform rt, out Vector2 min, out Vector2 max)
+        {
+            min = max = default;
             var canvas = rt.GetComponentInParent<Canvas>();
-            if (canvas == null) return float.PositiveInfinity;
+            if (canvas == null) return false;
             canvas = canvas.rootCanvas;
-            if (canvas.renderMode == RenderMode.WorldSpace) return float.PositiveInfinity;
+            if (canvas.renderMode == RenderMode.WorldSpace) return false;
             var camera = canvas.renderMode == RenderMode.ScreenSpaceCamera ? canvas.worldCamera : null;
             rt.GetWorldCorners(s_corners);
-            var min = RectTransformUtility.WorldToScreenPoint(camera, s_corners[0]);
-            var max = RectTransformUtility.WorldToScreenPoint(camera, s_corners[2]);
-            float pixels = max.y - min.y;
-            if (pixels <= 0f || keyboard <= min.y) return float.PositiveInfinity;
-            return (max.y - keyboard) * (rt.rect.height / pixels);
+            min = RectTransformUtility.WorldToScreenPoint(camera, s_corners[0]);
+            max = RectTransformUtility.WorldToScreenPoint(camera, s_corners[2]);
+            return max.x > min.x && max.y > min.y;
         }
 
         // After the tree's first solve: grows the given bottom padding of each node avoiding the keyboard by as much as
