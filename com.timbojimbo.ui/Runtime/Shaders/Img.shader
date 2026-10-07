@@ -17,8 +17,8 @@
 //               colourBlendMode*256, with the gradient angle as the fraction; the RGBs and alphasAndFactor
 //               (from alpha, to alpha, colour blend factor) are UiPacking.PackTriple8; the pairs are
 //               UiPacking.PackPair12 of (grid rotation, sprite rotation) as turns, (spacing.x, .y) as a
-//               fraction of TILE_SPACING_RANGE sprite sizes, (offset.x, .y) as a fraction of the spacing and
-//               (stagger.x, .y) as a fraction of the spacing
+//               fraction of TILE_SPACING_RANGE sprite sizes, (offset a, b) as steps along the lattice's two axes
+//               (a stagger tilts them), wrapped to whole steps, and (stagger.x, .y) as a fraction of the spacing
 //   TEXCOORD3 = sprite uv bounds (minU, minV, maxU, maxV); samples stay inside, taps outside are transparent
 Shader "TimboJimbo/UI/Img"
 {
@@ -73,7 +73,9 @@ Shader "TimboJimbo/UI/Img"
         CGPROGRAM
             #pragma vertex vert
             #pragma fragment frag
-            #pragma target 3.0
+            // 3.5 for nointerpolation, which the packed tile and effect values need; Unity 6 has no GLES 2 or
+            // WebGL 1 left to lose by it.
+            #pragma target 3.5
 
             #include "UnityCG.cginc"
             #include "UnityUI.cginc"
@@ -122,9 +124,11 @@ Shader "TimboJimbo/UI/Img"
                 float4 gStops0  : TEXCOORD3;   // packed from.xy, packed via.xy
                 float4 gStops1  : TEXCOORD4;   // packed to.xy, viaPosition, gradient mode (0 = off)
                 float2 gDir     : TEXCOORD5;   // gradient axis direction
-                float4 effects  : TEXCOORD6;   // header (raw), colour blend factor, staggerPair, 0
+                // The same at every vertex and packed into the full 24-bit mantissa, so not interpolated: an
+                // interpolation error of a whole step would carry between the packed fields (UiPacking.cginc).
+                nointerpolation float4 effects : TEXCOORD6;   // header (raw), colour blend factor, staggerPair, 0
                 float4 bounds   : TEXCOORD7;   // sprite uv bounds
-                float4 tile     : TEXCOORD8;   // sprite width, rotPair, spacingPair, offPair
+                nointerpolation float4 tile : TEXCOORD8;   // sprite width, rotPair, spacingPair, offPair
                 UNITY_VERTEX_OUTPUT_STEREO
             };
 
@@ -352,7 +356,8 @@ Shader "TimboJimbo/UI/Img"
                 sincos((spriteTurns - gridTurns) * TWO_PI, t.stampSin, t.stampCos);
                 t.spacing = max(t.spriteSize * float2(spacingX, spacingY) * TILE_SPACING_RANGE, 1e-4);
                 t.stagger = float2(staggerX, staggerY);
-                t.shift = float2(offX, offY) * t.spacing;
+                // The offset is (a, b) steps along the lattice's axes: a * (1, stagger.y) + b * (stagger.x, 1) spacings.
+                t.shift = float2(offX + offY * t.stagger.x, offY + offX * t.stagger.y) * t.spacing;
 
                 // The sample coordinate: the sprite uv, or the continuous grid coordinate when tiled. Its
                 // derivatives are taken here, before any branch, and unclamped so the edge clamp and the

@@ -417,8 +417,10 @@ namespace TimboJimbo.UI
             ComputeBlur(uvPerUnit, texelSize, out var blurTaps, out var tapSpacing);
 
             // The tiled layout is packed relative to the sprite so it is scale-free: spacing as a multiple of
-            // the sprite size, offset and stagger as a fraction of the spacing. The two rotations share a
-            // float. See Img.shader for the decode.
+            // the sprite size, stagger as a fraction of the spacing, and the offset as steps along the grid's
+            // lattice, whose axes a stagger tilts, so it wraps by whole steps and a staggered grid scrolled any
+            // distance lines up with itself where it wraps. The two rotations share a float. See Img.shader for
+            // the decode.
             var tilePacked = Vector4.zero;   // rotPair, spacingPair, offPair, staggerPair
             if (tiled)
             {
@@ -426,11 +428,16 @@ namespace TimboJimbo.UI
                     Mathf.Clamp01((_tileSpacing.x > 0f ? _tileSpacing.x : tileSize.x) / (tileSize.x * TileSpacingRangeSprites)),
                     Mathf.Clamp01((_tileSpacing.y > 0f ? _tileSpacing.y : tileSize.y) / (tileSize.y * TileSpacingRangeSprites)));
                 var period = Vector2.Max(Vector2.Scale(spacing01, tileSize) * TileSpacingRangeSprites, new Vector2(1e-3f, 1e-3f));
+                var stagger = new Vector2(Mathf.Repeat(_tileStagger.x, 1f), Mathf.Repeat(_tileStagger.y, 1f));
+                // The offset in spacings is (a + b * stagger.x, b + a * stagger.y) for (a, b) steps.
+                float u = _tileOffset.x / period.x, v = _tileOffset.y / period.y;
+                float det = Mathf.Max(1f - stagger.x * stagger.y, 1e-3f);
+                var steps = new Vector2((u - stagger.x * v) / det, (v - stagger.y * u) / det);
                 tilePacked = new Vector4(
                     UiPacking.PackPair12(Mathf.Repeat(_tileGridRotation / 360f, 1f), Mathf.Repeat(_tileSpriteRotation / 360f, 1f)),
                     UiPacking.PackPair12(spacing01.x, spacing01.y),
-                    UiPacking.PackPair12(Mathf.Repeat(_tileOffset.x / period.x, 1f), Mathf.Repeat(_tileOffset.y / period.y, 1f)),
-                    UiPacking.PackPair12(Mathf.Repeat(_tileStagger.x, 1f), Mathf.Repeat(_tileStagger.y, 1f)));
+                    UiPacking.PackPair12(Mathf.Repeat(steps.x, 1f), Mathf.Repeat(steps.y, 1f)),
+                    UiPacking.PackPair12(stagger.x, stagger.y));
             }
 
             // Channel layout (see the contract at the top of Img.shader). Everything travels in texcoords, which
