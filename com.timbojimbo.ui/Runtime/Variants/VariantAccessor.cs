@@ -100,6 +100,10 @@ namespace TimboJimbo.UI.Variants
 
         private readonly Type _valueType;
 
+        // A property of its own, of a type variants spring and so write every frame, written through a typed delegate;
+        // null for everything else, which goes through reflection.
+        private readonly TypedSetter _typed;
+
         private MemberAccessor(VariantValueKind kind, PropertyInfo property, FieldInfo field, FieldInfo[] path, Type valueType)
             : base(kind)
         {
@@ -107,6 +111,7 @@ namespace TimboJimbo.UI.Variants
             _field = field;
             _path = path;
             _valueType = valueType;
+            _typed = property != null && path.Length == 0 ? TypedSetter.For(property) : null;
         }
 
         public override Type ValueType => _valueType;
@@ -151,6 +156,11 @@ namespace TimboJimbo.UI.Variants
 
         public override void Write(Object target, VariantValue value)
         {
+            if (_typed != null)
+            {
+                _typed.Write(target, value);
+                return;
+            }
             object boxed = value.ToBoxed(_valueType);
             if (_path.Length == 0)
             {
@@ -223,5 +233,88 @@ namespace TimboJimbo.UI.Variants
             }
             return found;
         }
+    }
+
+    /// <summary>
+    /// A property's setter as a typed delegate, for the values variants spring and so write every frame (floats, colours,
+    /// vectors and rects): a write neither boxes the value nor allocates the argument array PropertyInfo.SetValue does.
+    /// Made once per accessor, over the type that declares the property.
+    /// </summary>
+    internal abstract class TypedSetter
+    {
+        public abstract void Write(Object target, in VariantValue value);
+
+        /// <summary>The typed setter for <paramref name="property"/>; null for one of a type written through reflection.</summary>
+        public static TypedSetter For(PropertyInfo property)
+        {
+            var type = property.PropertyType;
+            var setter = type == typeof(float) ? typeof(FloatSetter<>)
+                : type == typeof(Color) ? typeof(ColorSetter<>)
+                : type == typeof(Vector2) ? typeof(Vector2Setter<>)
+                : type == typeof(Vector3) ? typeof(Vector3Setter<>)
+                : type == typeof(Vector4) ? typeof(Vector4Setter<>)
+                : type == typeof(Rect) ? typeof(RectSetter<>)
+                : null;
+            if (setter == null || property.DeclaringType.IsValueType) return null;
+            return (TypedSetter)Activator.CreateInstance(setter.MakeGenericType(property.DeclaringType), property.SetMethod);
+        }
+
+        // IL2CPP makes generic code for the instantiations it sees: these, over a reference type and never run, give it the
+        // shared code each setter runs on for whatever component type For makes it over at runtime.
+        [UnityEngine.Scripting.Preserve]
+        private static void Instantiations()
+        {
+            _ = new FloatSetter<Object>(null);
+            _ = new ColorSetter<Object>(null);
+            _ = new Vector2Setter<Object>(null);
+            _ = new Vector3Setter<Object>(null);
+            _ = new Vector4Setter<Object>(null);
+            _ = new RectSetter<Object>(null);
+        }
+
+        protected static TDelegate Bind<TDelegate>(MethodInfo setter) where TDelegate : Delegate =>
+            setter == null ? null : (TDelegate)Delegate.CreateDelegate(typeof(TDelegate), setter);
+    }
+
+    internal sealed class FloatSetter<T> : TypedSetter where T : class
+    {
+        private readonly Action<T, float> _set;
+        public FloatSetter(MethodInfo setter) => _set = Bind<Action<T, float>>(setter);
+        public override void Write(Object target, in VariantValue value) => _set((T)(object)target, value.FloatValue);
+    }
+
+    internal sealed class ColorSetter<T> : TypedSetter where T : class
+    {
+        private readonly Action<T, Color> _set;
+        public ColorSetter(MethodInfo setter) => _set = Bind<Action<T, Color>>(setter);
+        public override void Write(Object target, in VariantValue value) => _set((T)(object)target, value.ColorValue);
+    }
+
+    internal sealed class Vector2Setter<T> : TypedSetter where T : class
+    {
+        private readonly Action<T, Vector2> _set;
+        public Vector2Setter(MethodInfo setter) => _set = Bind<Action<T, Vector2>>(setter);
+        public override void Write(Object target, in VariantValue value) => _set((T)(object)target, value.VectorValue);
+    }
+
+    internal sealed class Vector3Setter<T> : TypedSetter where T : class
+    {
+        private readonly Action<T, Vector3> _set;
+        public Vector3Setter(MethodInfo setter) => _set = Bind<Action<T, Vector3>>(setter);
+        public override void Write(Object target, in VariantValue value) => _set((T)(object)target, value.VectorValue);
+    }
+
+    internal sealed class Vector4Setter<T> : TypedSetter where T : class
+    {
+        private readonly Action<T, Vector4> _set;
+        public Vector4Setter(MethodInfo setter) => _set = Bind<Action<T, Vector4>>(setter);
+        public override void Write(Object target, in VariantValue value) => _set((T)(object)target, value.VectorValue);
+    }
+
+    internal sealed class RectSetter<T> : TypedSetter where T : class
+    {
+        private readonly Action<T, Rect> _set;
+        public RectSetter(MethodInfo setter) => _set = Bind<Action<T, Rect>>(setter);
+        public override void Write(Object target, in VariantValue value) => _set((T)(object)target, value.RectValue);
     }
 }
