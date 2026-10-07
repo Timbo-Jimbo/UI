@@ -28,6 +28,7 @@ Needs Core's next version (`ColorExtra.Lerp(mode, from, to, t)`).
 - Variants: an entry recorded before its field was retyped (a float made a Vector2) was written as the wrong kind, and threw, when another variant's entry for the same property was of the right kind
 - Variants: adding a property to a variant, or taking one out, from a property's menu in play mode left the set applying its old entries, and threw once one was taken out
 - A change that hid a node inside one already on its way out (a row deleted from a page as the page closes) finished at once, the node riding the page out with no spring of its own to hold it, so a `Finished` handler pooling or destroying the row cut it from the page mid-slide: the node holds the change open until it has gone
+- A node floating against an element that, through the elements, comes back to itself (attached to itself, to something inside it, or to something attached back to it) is placed against its parent, and was warned of; so was every other node waiting on anything inside it, though its own element was fine (a tooltip against a button inside the mistaken node). Only the nodes on such a loop fall back now, and the rest are placed against their elements
 
 ## [0.4.0] - 06/10/2026
 

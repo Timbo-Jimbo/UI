@@ -104,6 +104,10 @@ namespace TimboJimbo.UI.Layout
         internal bool Waiting;
         internal int FirstWaiting;
         internal int NextWaiting;
+
+        // While what is still waiting is searched for loops: 0 not reached yet, the search's number while it is on the
+        // way being followed, -1 once that way is done with.
+        internal int Mark;
     }
 
     /// <summary>
@@ -193,11 +197,12 @@ namespace TimboJimbo.UI.Layout
 
         // Makes the order the passes that share out sizes and give positions go in (Next): pre-order, but a node
         // attached to an element not in the order yet waits for it, with everything inside it, and goes in straight
-        // after it. Without such nodes it is pre-order itself. What is still waiting at the end waits, through the
-        // elements it is attached to, on itself (it is attached to itself, to something inside it, or to something
-        // attached back to it): its placement is circular, so it is attached to its parent instead and goes in after
-        // it (in already, as it was met). All of it at once, so which falls back does not depend on sibling order.
-        // Each node goes in once.
+        // after it. Without such nodes it is pre-order itself. What is still waiting at the end is held up, through the
+        // elements, by a loop: nodes each waiting, in the end, on the next (a node attached to itself, to something
+        // inside it, or to something attached back to it). Their placement is circular, so each node on a loop is
+        // attached to its parent instead and goes in after it (in already, as it was met), which puts in what waits on
+        // it; the rest stay attached to their elements. A whole loop at once, so which falls back does not depend on
+        // sibling order. Each node goes in once.
         private static void Order(SolverNode[] nodes, int count)
         {
             for (int i = 0; i < count; i++)
@@ -211,18 +216,8 @@ namespace TimboJimbo.UI.Layout
 
             int last = -1;
             Append(nodes, 0, ref last);
-            while (true)
+            while (FallBackLoops(nodes, count))
             {
-                bool circular = false;
-                for (int i = 1; i < count; i++)
-                {
-                    if (!nodes[i].Waiting) continue;
-                    nodes[i].Floating.AttachTo = FloatingAttach.Parent;
-                    circular = true;
-                }
-                if (!circular) return;
-
-                // Any that start waiting as these go in are attached to elements still, and are seen to next round.
                 for (int i = 1; i < count; i++)
                 {
                     if (!nodes[i].Waiting || nodes[i].Floating.AttachTo != FloatingAttach.Parent) continue;
@@ -230,6 +225,52 @@ namespace TimboJimbo.UI.Layout
                     Append(nodes, i, ref last);
                 }
             }
+        }
+
+        // Attaches each node on a loop of what is still waiting to its parent: from any waiting node, following what holds
+        // it up (HeldUpBy) leads, in the end, round a loop, as each has just the one. Returns whether any fell back, and so
+        // whether anything waits.
+        private static bool FallBackLoops(SolverNode[] nodes, int count)
+        {
+            for (int i = 1; i < count; i++)
+                nodes[i].Mark = 0;
+            bool fell = false;
+            int search = 0;
+            for (int i = 1; i < count; i++)
+            {
+                if (!nodes[i].Waiting || nodes[i].Mark != 0) continue;
+                search++;
+                int at = i;
+                while (nodes[at].Mark == 0)
+                {
+                    nodes[at].Mark = search;
+                    at = HeldUpBy(nodes, at);
+                }
+                // Back on this search's own way: a loop, closed at `at`. Otherwise it ran into one found before.
+                if (nodes[at].Mark == search)
+                {
+                    int on = at;
+                    do
+                    {
+                        nodes[on].Floating.AttachTo = FloatingAttach.Parent;
+                        on = HeldUpBy(nodes, on);
+                    } while (on != at);
+                    fell = true;
+                }
+                for (int on = i; nodes[on].Mark == search; on = HeldUpBy(nodes, on))
+                    nodes[on].Mark = -1;
+            }
+            return fell;
+        }
+
+        // What holds a waiting node up: the nearest waiting node at or above its element, which, not in the order yet,
+        // is itself waiting or inside a node that is.
+        private static int HeldUpBy(SolverNode[] nodes, int waiting)
+        {
+            int at = nodes[waiting].Element;
+            while (!nodes[at].Waiting)
+                at = nodes[at].Parent;
+            return at;
         }
 
         // Puts a node in the order, then what was waiting for it, then each of its children with what is inside it;
