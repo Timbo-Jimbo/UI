@@ -75,9 +75,10 @@ namespace TimboJimbo.UI.Layout
 
         // After a pass has placed a scroll container's tree: it takes its size and range from the solver (how far its
         // content runs past its size, on the axes it scrolls). Held by a press, it is kept within its new range unless it
-        // is stretched past an end (by the drag, or caught there by the press), and drawn banded against it if it is: an
-        // owner moving in the same drag can change its range (a sheet growing past full resizes its list), and one left
-        // drawn past its end there would spring back short of it once let go. Then, in play mode: what is moving it heads
+        // is stretched past an end (by the drag, or caught there by the press); stretched, it stays drawn where it is,
+        // its pull found again against its new range and size, as a UIScrollView's offset stays put when its content
+        // size changes under a drag (rows added to a list pulled past its end, or a sheet growing past full resizing its
+        // list in the same drag), and is let go of from there. Then, in play mode: what is moving it heads
         // for where it can now go, keeping its speed; a request made of it is resolved; with its ScrollAnchor at End, it
         // is kept at its end as its range grows (KeepAtEnd), unless a request sent it somewhere, which wins (a
         // ScrollIntoView that finds its descendant in view sends it nowhere); and, at rest, it comes back into range if
@@ -102,15 +103,19 @@ namespace TimboJimbo.UI.Layout
                 var size = solved.Rect.size;
                 bool held = scroll.Phase == ScrollPhase.Dragging;
                 bool stretched = held && scroll.Raw != scroll.Clamp(scroll.Raw);
-                scroll.Viewport = size;
                 // Overflow within the solver's epsilon is float rounding, not something to scroll to.
                 var overflow = solved.ContentSize - size;
-                scroll.Range = scroll.OnAxes(new Vector2(overflow.x > 0.01f ? overflow.x : 0f, overflow.y > 0.01f ? overflow.y : 0f));
+                var range = scroll.OnAxes(new Vector2(overflow.x > 0.01f ? overflow.x : 0f, overflow.y > 0.01f ? overflow.y : 0f));
+                bool resized = range != scroll.Range || size != scroll.Viewport;
+                scroll.Viewport = size;
+                scroll.Range = range;
                 scroll.Measured = true;
                 if (held)
                 {
                     if (!stretched)
                         scroll.Raw = scroll.Clamp(scroll.Raw);
+                    else if (resized)
+                        scroll.Raw = scroll.Unband(scroll.Offset.Value);
                     scroll.Offset.Value = scroll.Band(scroll.Raw);
                 }
             }
@@ -708,10 +713,19 @@ namespace TimboJimbo.UI.Layout
         }
 
         // A container's indicator for one axis (0 is x, 1 is y): an object of its own inside it, hidden and never saved,
-        // on its layer, taking no pointer.
+        // on its layer, taking no pointer. One it made before it was last disabled, which hid it and forgot it, is taken up
+        // again, as what else it adds is, rather than left behind for good.
         private static LayoutScrollIndicator NewIndicator(NodeState state, int axis)
         {
-            var go = new GameObject(axis == 0 ? "Scroll Indicator X" : "Scroll Indicator Y", typeof(RectTransform));
+            string name = axis == 0 ? "Scroll Indicator X" : "Scroll Indicator Y";
+            var parent = state.RectTransform;
+            for (int i = 0; i < parent.childCount; i++)
+            {
+                var child = parent.GetChild(i);
+                if (child.name == name && child.TryGetComponent(out LayoutScrollIndicator made))
+                    return made;
+            }
+            var go = new GameObject(name, typeof(RectTransform));
             go.hideFlags = HideFlags.HideAndDontSave;
             go.layer = state.Node.gameObject.layer;
             go.transform.SetParent(state.RectTransform, false);

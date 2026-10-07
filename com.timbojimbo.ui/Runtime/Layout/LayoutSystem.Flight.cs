@@ -10,16 +10,21 @@ namespace TimboJimbo.UI.Layout
         // ── The flight layer ─────────────────────────────────────────────────────
         //
         // A node flies by having a canvas of its own that overrides the sorting, at the root canvas's sorting layer and
-        // an order above any a scene uses. That draws it above everything in its root canvas, and takes it out of every
-        // RectMask2D and Mask above it, since both stop looking up at such a canvas; its own clip still cuts what is in
-        // it. Nothing is reparented, so its layout parent (its transform parent) and its springs, in that parent's
-        // space, are what they would be anyway. Landing puts back what flying changed, and removes what it added.
-
-        // The sorting order of the bottom of the layer: each flight's is this plus its place in it.
-        private const int FlightOrder = 30000;
+        // an order just above the highest anything in its root canvas draws at there. That draws it above everything in
+        // its root canvas, and nothing more (a root canvas drawn above that one, a dialog's, stays above it and keeps the
+        // pointer), and takes it out of every RectMask2D and Mask above it, since both stop looking up at such a canvas;
+        // its own clip still cuts what is in it. Nothing is reparented, so its layout parent (its transform parent) and
+        // its springs, in that parent's space, are what they would be anyway. Landing puts back what flying changed, and
+        // removes what it added.
 
         // What is flying, bottom to top.
         private static readonly List<NodeState> s_flights = new();
+
+        // Scratch for Number: the next order each root canvas's flights take, the flights' canvases, and the canvases in
+        // a root canvas.
+        private static readonly Dictionary<Canvas, int> s_nextOrder = new();
+        private static readonly HashSet<Canvas> s_flightCanvases = new();
+        private static readonly List<Canvas> s_canvases = new();
 
         // A change's new flights, which board together once its pass is over (Embark).
         private static readonly List<Boarding> s_boarding = new();
@@ -51,6 +56,9 @@ namespace TimboJimbo.UI.Layout
             s_flights.Clear();
             s_boarding.Clear();
             s_nested.Clear();
+            s_nextOrder.Clear();
+            s_flightCanvases.Clear();
+            s_canvases.Clear();
         }
 
         // A node moved from under `from` to another layout parent in a change's pass (Reparent) boards with the
@@ -176,12 +184,24 @@ namespace TimboJimbo.UI.Layout
                     raycaster.blockingMask = rootRaycaster.blockingMask;
                 }
             }
+            flight.Root = root;
+            flight.RootRaycaster = rootRaycaster;
+            FollowRootRaycaster(flight);
 
             // Its order is its place in the layer, given as the layer is numbered.
             canvas.overrideSorting = true;
             canvas.sortingLayerID = root.sortingLayerID;
             state.Flight = flight;
             s_flights.Add(state);
+        }
+
+        // A raycaster the system added takes the pointer only while its root canvas's does, so code switching that off to
+        // keep the pointer from a screen as it changes keeps it from what flies there too. Every frame a flight is drawn.
+        private static void FollowRootRaycaster(FlightState flight)
+        {
+            if (!flight.AddedRaycaster || flight.Raycaster == null) return;
+            bool takes = flight.RootRaycaster != null && flight.RootRaycaster.isActiveAndEnabled;
+            if (flight.Raycaster.enabled != takes) flight.Raycaster.enabled = takes;
         }
 
         // A pair half's CanvasGroup (added if it has none) ignores its parent groups while it flies: the pair draws its
@@ -249,17 +269,43 @@ namespace TimboJimbo.UI.Layout
             return null;
         }
 
-        // Gives each flight the order of its place in the layer, bottom to top. Numbered afresh from the bottom each
-        // time flights board, so the orders never run up however many come and go; those that land meanwhile leave gaps
-        // that change nothing.
+        // Gives each flight the order of its place in the layer, bottom to top, counted up for each root canvas from just
+        // above the highest order anything in it draws at on its sorting layer (the root canvas itself, and the canvases in
+        // it that sort by themselves there, flights aside). Numbered afresh each time flights board, so the orders never
+        // run up however many come and go; those that land meanwhile leave gaps that change nothing.
         private static void Number()
         {
+            s_flightCanvases.Clear();
+            for (int i = 0; i < s_flights.Count; i++)
+                s_flightCanvases.Add(s_flights[i].Flight.Canvas);
+            s_nextOrder.Clear();
             for (int i = 0; i < s_flights.Count; i++)
             {
-                var canvas = s_flights[i].Flight.Canvas;
-                int order = Mathf.Min(FlightOrder + i, short.MaxValue);
-                if (canvas.sortingOrder != order) canvas.sortingOrder = order;
+                var flight = s_flights[i].Flight;
+                var root = flight.Root;
+                if (!s_nextOrder.TryGetValue(root, out int order))
+                    order = AboveAllIn(root);
+                s_nextOrder[root] = order + 1;
+                order = Mathf.Min(order, short.MaxValue);
+                if (flight.Canvas.sortingOrder != order) flight.Canvas.sortingOrder = order;
             }
+            s_nextOrder.Clear();
+            s_flightCanvases.Clear();
+        }
+
+        // The order just above what draws highest in a root canvas on its sorting layer.
+        private static int AboveAllIn(Canvas root)
+        {
+            int top = root.sortingOrder;
+            root.GetComponentsInChildren(true, s_canvases);
+            for (int i = 0; i < s_canvases.Count; i++)
+            {
+                var canvas = s_canvases[i];
+                if (canvas.overrideSorting && canvas.sortingLayerID == root.sortingLayerID && !s_flightCanvases.Contains(canvas))
+                    top = Mathf.Max(top, canvas.sortingOrder);
+            }
+            s_canvases.Clear();
+            return top + 1;
         }
 
         // Whether a flight has landed: its position and size are at rest, caught, skipped or where they were going, so

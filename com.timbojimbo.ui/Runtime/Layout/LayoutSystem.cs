@@ -1743,7 +1743,10 @@ namespace TimboJimbo.UI.Layout
                     WriteRect(state.RectTransform, centre, size, DrawnScaleOf(state));
             }
             if (state.Flight != null)
+            {
                 CutToMatch(state);
+                FollowRootRaycaster(state.Flight);
+            }
 
             bool visible = node.Display == DisplayMode.Visible;
             // Drawn by its Display as it was last placed: inside a held node that waits until the node is let go of

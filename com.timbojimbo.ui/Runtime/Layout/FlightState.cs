@@ -18,10 +18,14 @@ namespace TimboJimbo.UI.Layout
         public int SavedSortingLayerID;
         public int SavedSortingOrder;
 
+        // The root canvas it flies above everything in, whose order the layer is numbered from.
+        public Canvas Root;
+
         // What lets it take the pointer up there, as its root canvas's raycaster lets what is in it (null when the root
-        // canvas has none), and whether the system added it.
+        // canvas has none), whether the system added it, and the root canvas's, which one added follows on and off.
         public GraphicRaycaster Raycaster;
         public bool AddedRaycaster;
+        public GraphicRaycaster RootRaycaster;
 
         // Whether it is half of a pair (names): its CanvasGroup then ignores its parent groups while it flies, and this
         // was the group's setting before.

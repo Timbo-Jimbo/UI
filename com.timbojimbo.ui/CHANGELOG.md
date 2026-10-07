@@ -17,6 +17,10 @@ Needs Core's next version (`ColorExtra.Lerp(mode, from, to, t)`).
 - A node shown again after Display None while its springs were still on their way (a row hidden and shown by a filter during an animation) slid in from where they had got to unseen, still held by the change it had been moving for; it now appears where it goes, as a node not drawn always did at rest
 - A root inside another tree (a node under a plain object in a node) played its own entrance and exit over those of the node it is inside when both changed together, so a card added inside Animate faded its content in twice, lagging its background; it now comes and goes with that node, as any node inside it does, and leaving with it, it takes focus no more
 - A node moved inside Animate between parents drawn at different scales jumped in size as it set off: its size is carried into the new parent's units, as its position always was
+- A scroll container disabled and enabled again (a tab, a pooled cell) made new scroll indicators every time, leaving the old ones behind as hidden children for every frame to walk past: it takes up the ones it made
+- A node flying (moved to another parent, or taking over by name, inside Animate) drew above, and took presses from, other root canvases drawn above its own, a dialog's say: flights are numbered from just above the highest order anything in their own root canvas draws at, rather than from 30000
+- A flight took the pointer while its root canvas's raycaster was switched off: the raycaster added to it follows the root canvas's on and off
+- A list pulled past its end jumped under the finger when its range or size changed during the drag (rows added to a list pulled to load more): it stays drawn where it is, as a UIScrollView's offset stays when its content size changes
 
 ## [0.4.0] - 06/10/2026
 
