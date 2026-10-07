@@ -18,8 +18,10 @@ namespace TimboJimbo.UI.Variants
     /// authored on its own shows its toast's Type.
     /// In the editor the selection is previewed and never saved: scenes and prefabs keep their default values, and the
     /// inspector records a variant by editing the objects while it is selected. In play mode a variant set applies its
-    /// selection when it wakes and whenever <see cref="Set(string, string)"/> changes it. It notes each value's default the
-    /// first time it applies, and puts that back when nothing selected sets it. A group switches inside
+    /// selection when it wakes and whenever <see cref="Set(string, string)"/> changes it. Where sets one inside another set
+    /// the same value, the outermost set whose shown variant sets it wins, as an outer prefab's override does and as the
+    /// editor previews it, whichever set switched last; with none setting it, the value it had before any variant changed
+    /// it comes back (noted the first time a set applies). A group switches inside
     /// <see cref="MotionSystem.Animate(MotionAnimation, Action, string[])"/> on its <see cref="VariantGroup.Animation"/>
     /// wherever it is switched from, as SwiftUI's .animation(_:value:), so what the switch changes moves (see
     /// <see cref="VariantMotion"/>); any switch made inside a change joins it. <see cref="VariantStates"/> and
@@ -31,12 +33,8 @@ namespace TimboJimbo.UI.Variants
     {
         [SerializeField] private List<VariantGroup> _groups = new();
 
-        // What it has set at runtime, built the first time it applies: a slot for each object and property any variant
-        // sets, with its default (read then) and what was last written; and, per group and variant, the slot each entry
-        // sets (-1 for one that sets nothing it can reach).
+        // What it sets at runtime, built the first time it applies: a slot for each object and property any variant sets.
         [NonSerialized] private Slot[] _slots;
-        [NonSerialized] private int[][][] _entrySlots;
-        [NonSerialized] private VariantValue[] _resolved;
 
         // What each group showed when it last applied (null until it has, when each showed Default as far as its objects
         // know), to tell when what it inherits has changed.
@@ -47,13 +45,28 @@ namespace TimboJimbo.UI.Variants
             public Object Target;
             public string Property;
             public VariantAccessor Accessor;
-            public VariantValue Default;
-            public VariantValue Last;
+            public Shared Shared;
 
             // Whether it moves on a spring with a change, and the layout node whose spring it moves on.
             public bool Springs;
             public LayoutNode Node;
         }
+
+        // A property some variant sets, shared by every set with a slot for it (a set and one nested in it may both set
+        // it): its value before any variant changed it, noted by the first set to apply, and the value last written to it,
+        // by whichever set wrote it.
+        private sealed class Shared
+        {
+            public VariantValue Default;
+            public VariantValue Last;
+            public int Sets;
+        }
+
+        private static readonly Dictionary<(Object, string), Shared> s_shared = new();
+
+        // Statics survive play mode sessions when domain reload is off; the sets that held these are gone.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        private static void ResetStatics() => s_shared.Clear();
 
         /// <summary>Raised once its selection has changed; in play mode, once the values it gives are applied.</summary>
         public event Action<VariantSet> Changed;
@@ -145,7 +158,7 @@ namespace TimboJimbo.UI.Variants
         public void AddGroup(VariantGroup group)
         {
             _groups.Add(group);
-            _slots = null;
+            ReleaseSlots();
         }
 
         public int IndexOfGroup(string group)
@@ -219,9 +232,9 @@ namespace TimboJimbo.UI.Variants
         private void Switch(VariantGroup group) =>
             MotionSystem.Animate(group.Animation ?? MotionAnimation.Default, ApplyAndPassDown);
 
-        // The sets under it take up what they inherit first (each reads it from the selections above it, not from what
-        // was applied), so where one of them sets a value this one sets too, this one's lands last and wins, as an outer
-        // prefab's overrides do and as the editor shows it.
+        // The sets under it take up what they inherit (each reads it from the selections above it, not from what was
+        // applied), then it applies. Where one of them sets a value this one sets too, each writes what the outermost set
+        // gives it (Winner), so the order makes no difference.
         private void ApplyAndPassDown()
         {
             using (ListPool<VariantSet>.Get(out var sets))
@@ -279,33 +292,63 @@ namespace TimboJimbo.UI.Variants
         }
 
         /// <summary>
-        /// Writes every value any variant sets as the groups show: the shown variant's value from the last group whose
-        /// variant sets it, else its default. Only what differs from what it last wrote is written.
+        /// Writes every value any of its variants sets as the groups show: what the outermost set over it gives it (its own
+        /// shown variants' value, the later group's where two set it, unless a set it is inside gives one), else its
+        /// default. Only what differs from what was last written to it, by this set or another, is written.
         /// </summary>
         internal void Apply()
         {
             Build();
-            for (int s = 0; s < _slots.Length; s++)
-                _resolved[s] = _slots[s].Default;
-
             for (int g = 0; g < _groups.Count; g++)
-            {
-                string shown = _applied[g] = Shown(g);
-                int v = _groups[g].IndexOf(shown);
-                if (v < 0) continue;
-                var entries = _groups[g].VariantList[v].EntryList;
-                var slots = _entrySlots[g][v];
-                for (int e = 0; e < slots.Length; e++)
-                    if (slots[e] >= 0) _resolved[slots[e]] = entries[e].Value;
-            }
-
+                _applied[g] = Shown(g);
             for (int s = 0; s < _slots.Length; s++)
             {
                 ref var slot = ref _slots[s];
-                if (slot.Target == null || slot.Last.Equals(_resolved[s])) continue;
-                Put(slot, _resolved[s]);
-                slot.Last = _resolved[s];
+                if (slot.Target == null) continue;
+                var value = Winner(slot);
+                if (slot.Shared.Last.Equals(value)) continue;
+                Put(slot, value);
+                slot.Shared.Last = value;
             }
+        }
+
+        // What a property shows: what the outermost set over its object (on it, or on an object above it) gives it from
+        // the variants it shows, as an outer prefab's override wins over a nested one's; with none, its default.
+        private static VariantValue Winner(in Slot slot)
+        {
+            var value = slot.Shared.Default;
+            for (var at = TransformOf(slot.Target); at != null; at = at.parent)
+            {
+                if (at.TryGetComponent(out VariantSet set) && set.TryShows(slot.Target, slot.Property, slot.Accessor.Kind, out var shown))
+                    value = shown;
+            }
+            return value;
+        }
+
+        private static Transform TransformOf(Object target) => target switch
+        {
+            GameObject gameObject => gameObject.transform,
+            Component component => component.transform,
+            _ => null,
+        };
+
+        // The value the variants it shows give a property, the later group's where two do; false where none does. An entry
+        // recorded before its field was retyped (a float made a Vector2) gives nothing.
+        private bool TryShows(Object target, string property, VariantValueKind kind, out VariantValue value)
+        {
+            value = default;
+            bool shows = false;
+            for (int g = 0; g < _groups.Count; g++)
+            {
+                int v = _groups[g].IndexOf(Shown(g));
+                if (v < 0) continue;
+                var variant = _groups[g].VariantList[v];
+                int e = variant.IndexOf(target, property);
+                if (e < 0 || variant.EntryList[e].Value.Kind != kind) continue;
+                value = variant.EntryList[e].Value;
+                shows = true;
+            }
+            return shows;
         }
 
         private static void Put(in Slot slot, VariantValue value)
@@ -316,70 +359,80 @@ namespace TimboJimbo.UI.Variants
                 slot.Accessor.Write(slot.Target, value);
         }
 
-        // Finds a slot for every object and property its variants set, reading each one's default as it is now.
+        // Finds a slot for every object and property its variants set, sharing each with any other set that sets it, and
+        // noting its default as it is now where no set has yet.
         private void Build()
         {
             if (_slots != null) return;
 
             var slots = new List<Slot>();
-            var found = new Dictionary<(Object, string), int>();
-            _entrySlots = new int[_groups.Count][][];
+            var found = new HashSet<(Object, string)>();
             for (int g = 0; g < _groups.Count; g++)
             {
                 var variants = _groups[g].VariantList;
-                _entrySlots[g] = new int[variants.Count][];
                 for (int v = 0; v < variants.Count; v++)
                 {
-                    var entries = variants[v].EntryList;
-                    var map = _entrySlots[g][v] = new int[entries.Count];
-                    for (int e = 0; e < entries.Count; e++)
+                    foreach (var entry in variants[v].EntryList)
                     {
-                        map[e] = -1;
-                        var entry = entries[e];
-                        if (entry.Target == null) continue;
-
-                        var key = (entry.Target, entry.Property);
-                        if (!found.TryGetValue(key, out int s))
+                        if (entry.Target == null || found.Contains((entry.Target, entry.Property))) continue;
+                        var accessor = VariantAccessor.For(entry.Target, entry.Property);
+                        if (accessor == null || accessor.Kind != entry.Value.Kind) continue;
+                        found.Add((entry.Target, entry.Property));
+                        slots.Add(new Slot
                         {
-                            var accessor = VariantAccessor.For(entry.Target, entry.Property);
-                            if (accessor == null || accessor.Kind != entry.Value.Kind) continue;
-                            var current = accessor.Read(entry.Target);
-                            s = slots.Count;
-                            slots.Add(new Slot
-                            {
-                                Target = entry.Target,
-                                Property = entry.Property,
-                                Accessor = accessor,
-                                Default = current,
-                                Last = current,
-                                Springs = VariantMotion.Springs(entry.Target, accessor.Kind),
-                                Node = VariantMotion.NodeOf(entry.Target),
-                            });
-                            found.Add(key, s);
-                        }
-                        // Each entry is checked, not only the first for its slot: one recorded before its field was retyped
-                        // (a float made a Vector2) is left out rather than written as the wrong kind.
-                        if (slots[s].Accessor.Kind != entry.Value.Kind) continue;
-                        map[e] = s;
+                            Target = entry.Target,
+                            Property = entry.Property,
+                            Accessor = accessor,
+                            Shared = Share(entry.Target, entry.Property, accessor),
+                            Springs = VariantMotion.Springs(entry.Target, accessor.Kind),
+                            Node = VariantMotion.NodeOf(entry.Target),
+                        });
                     }
                 }
             }
             _slots = slots.ToArray();
-            _resolved = new VariantValue[_slots.Length];
             _applied = new string[_groups.Count];
         }
 
+        private static Shared Share(Object target, string property, VariantAccessor accessor)
+        {
+            if (!s_shared.TryGetValue((target, property), out var shared))
+            {
+                var current = accessor.Read(target);
+                shared = new Shared { Default = current, Last = current };
+                s_shared.Add((target, property), shared);
+            }
+            shared.Sets++;
+            return shared;
+        }
+
+        // Forgets its slots, and the shared properties no other set has a slot for.
+        private void ReleaseSlots()
+        {
+            if (_slots == null) return;
+            foreach (var slot in _slots)
+            {
+                if (--slot.Shared.Sets == 0)
+                    s_shared.Remove((slot.Target, slot.Property));
+            }
+            _slots = null;
+        }
+
+        private void OnDestroy() => ReleaseSlots();
+
         // Its variants changed while it is applied (edited in the inspector, or from a property's menu, in play mode): put
-        // back every default it has changed, forget them, and apply again from what the variants now say.
+        // back every default it has changed, forget them, and apply again from what the variants now say (a set over it
+        // putting back what it gives).
         internal void Rebuild()
         {
             if (_slots == null) return;
             foreach (var slot in _slots)
             {
-                if (slot.Target != null && !slot.Last.Equals(slot.Default))
-                    Put(slot, slot.Default);
+                if (slot.Target == null || slot.Shared.Last.Equals(slot.Shared.Default)) continue;
+                Put(slot, slot.Shared.Default);
+                slot.Shared.Last = slot.Shared.Default;
             }
-            _slots = null;
+            ReleaseSlots();
             Apply();
         }
 
