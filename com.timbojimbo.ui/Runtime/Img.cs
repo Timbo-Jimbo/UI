@@ -369,6 +369,25 @@ namespace TimboJimbo.UI
             base.OnDisable();
             if (overrideSprite == _generatedSprite) overrideSprite = null;
             DestroyGeneratedSprite();
+            TellNode();
+        }
+
+        // What it measures goes with its sprite, which Graphic dirties everything for, bar the layout for a sprite the same
+        // size (a frame of a sprite sheet); and enabling it does too.
+        public override void SetAllDirty()
+        {
+            bool resized = !m_SkipLayoutUpdate;
+            base.SetAllDirty();
+            if (resized)
+                TellNode();
+        }
+
+        // A LayoutNode on it measures it, only as its tree is laid out: it is told when that may have changed, and as the
+        // image is added or removed.
+        private void TellNode()
+        {
+            if (TryGetComponent(out Layout.LayoutNode node))
+                node.ContentChanged();
         }
 
         protected override void OnCanvasHierarchyChanged()

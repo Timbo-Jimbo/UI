@@ -168,6 +168,23 @@ namespace TimboJimbo.UI.Layout
                 s_changing.Add(state);
         }
 
+        // In a change's pass, for a tree it does not lay out, where nothing changed: each node there shown with a name holds
+        // it before the change and after, and is taken as having been shown as it is.
+        private static void NoteHolders(LayoutTree tree)
+        {
+            var named = tree.Named;
+            for (int i = 0; i < named.Count; i++)
+            {
+                var state = named[i];
+                state.WasShown = state.PassShown;
+                state.WasName = state.PassName;
+                state.WasId = state.PassId;
+                if (!state.PassShown) continue;
+                NoteHolder(state, state.PassName, state.PassId, false);
+                NoteHolder(state, state.PassName, state.PassId, true);
+            }
+        }
+
         private static void NoteHolder(NodeState state, string name, object id, bool after)
         {
             var key = new MatchKey(name, id);
@@ -613,11 +630,11 @@ namespace TimboJimbo.UI.Layout
         {
             if (fit == MatchFit.Resize)
             {
-                WriteRect(state.RectTransform, centre, size, scale);
+                WriteRect(state, centre, size, scale);
                 return;
             }
             var picture = PictureSizeOf(state);
-            WriteRect(state.RectTransform, centre, picture, FitScale(fit, size, picture) * scale);
+            WriteRect(state, centre, picture, FitScale(fit, size, picture) * scale);
         }
 
         // How much a picture `picture` big is scaled along each axis to fill a rect `size` big as `fit` says: Fill each

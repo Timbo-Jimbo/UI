@@ -154,9 +154,9 @@ namespace TimboJimbo.UI.Layout
         public int Line;
         public int Lines;
 
-        // Its drag owner (an ILayoutDraggable on its object) as the last pass found it, looked up each pass as its content
-        // is, so one added or removed is met with the next frame; null for none. It takes part in drags only while it is
-        // enabled.
+        // Its drag owner (an ILayoutDraggable on its object) as the last pass that laid it out found it, looked up then as
+        // its content is (one added or removed later tells its node: LayoutNode.ContentChanged); null for none. It takes
+        // part in drags only while it is enabled.
         public ILayoutDraggable Draggable;
 
         // The input component on its object that takes the pointer for it while it scrolls or has an enabled drag owner,
@@ -215,10 +215,28 @@ namespace TimboJimbo.UI.Layout
         // How many transforms are above it, for ordering roots (outer before inner).
         public int Depth;
 
+        // ── Between passes ───────────────────────────────────────────────────────
+
+        // The tree it was last laid out in, and for a root, its own tree, kept while it is a root.
+        public LayoutTree Tree;
+        public LayoutTree OwnTree;
+
+        // What it last wrote into its RectTransform (anchored position, size and scale) and CanvasGroup (alpha, whether it
+        // takes the pointer), so a frame writes only what changed, without reading back what is there. Not yet written,
+        // or written by something else since (taken over again), when false.
+        public bool RectWritten;
+        public Vector2 WrittenPosition;
+        public Vector2 WrittenSize;
+        public Vector2 WrittenScale;
+        public bool GroupWritten;
+        public float WrittenAlpha;
+        public bool WrittenClickable;
+
         public NodeState(LayoutNode node)
         {
             Node = node;
             RectTransform = (RectTransform)node.transform;
+            Position.Owner = Size.Owner = Opacity.Owner = Scale.Owner = Shown.Owner = this;
         }
     }
 }

@@ -420,6 +420,17 @@ namespace TimboJimbo.UI.Layout
         /// </summary>
         public bool Catch() => LayoutSystem.Catch(this);
 
+        /// <summary>
+        /// Tells layout that something on its object it lays the node out by has changed, so its layout is worked out
+        /// again in the next frame (inside <see cref="MotionSystem.Animate(MotionAnimation, Action, string[])"/>, with
+        /// that change, so what it moves springs), as UIKit's invalidateIntrinsicContentSize: what its content measures
+        /// (<see cref="ILayoutMeasurable"/>), or which content or drag owner (<see cref="ILayoutDraggable"/>) it has.
+        /// Layout measures and looks them up only as it lays the node's tree out, which it does once something has
+        /// changed there, not every frame. Its own properties, and nodes enabled, disabled or moved, tell it themselves,
+        /// as TextBlock and Img do for their content.
+        /// </summary>
+        public void ContentChanged() => Changed();
+
         // Tells the system something about it changed; outside play mode, so the editor draws it again.
         private void Changed() => LayoutSystem.Changed(this);
 
@@ -429,7 +440,10 @@ namespace TimboJimbo.UI.Layout
 
         private void OnValidate() => Changed();
 
-        private void OnTransformParentChanged() => Changed();
+        // Its fields written by an Animator, behind its properties: laid out again, as UGUI draws a graphic again.
+        private void OnDidApplyAnimationProperties() => Changed();
+
+        private void OnTransformParentChanged() => LayoutSystem.Reparented(this);
 
         private void OnTransformChildrenChanged() => Changed();
     }

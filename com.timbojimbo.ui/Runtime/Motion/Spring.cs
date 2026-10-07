@@ -38,6 +38,10 @@ namespace TimboJimbo.UI.Motion
         // fling).
         public MotionTransition Transition;
 
+        // The layout node it is a channel of (its position, size, opacity, scale, shown value or scroll offset), whose
+        // tree is woken whenever it sets off or stops, wherever from; null for a value something draws itself.
+        public Layout.NodeState Owner;
+
         // How near its target it has to be (in its units), and how slow (in its units a radian of its swing, so
         // omega times this a second), to count as there.
         private readonly float _rest;

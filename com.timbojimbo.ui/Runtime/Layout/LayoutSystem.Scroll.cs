@@ -24,7 +24,7 @@ namespace TimboJimbo.UI.Layout
             var axis = node.Scroll;
             var scroll = state.Scroll;
             if (scroll != null && scroll.Axis == axis) return;
-            scroll ??= state.Scroll = new ScrollState();
+            scroll ??= state.Scroll = new ScrollState(state);
             scroll.Axis = axis;
             StopScrollAt(scroll, scroll.Offset.Value);
             scroll.Range = scroll.OnAxes(scroll.Range);
@@ -208,9 +208,9 @@ namespace TimboJimbo.UI.Layout
         // The rect a ScrollTo or ScrollIntoView of `descendant` lines up, from `min` to `max` in the container's content
         // space: the descendant's target rect there (its target top-left, centre - size / 2, and each of its layout
         // parents' up to the container's child, each in its own parent's layout space, added up), grown on each side by
-        // the space around it (MarginOf). Read from the targets the last pass gave, not the solver's nodes, which the
-        // next tree's pass writes over (and ScrollTo also runs between passes). False when it is not laid out inside
-        // it: not placed yet, out of layout, or under a root of its own.
+        // the space around it (MarginOf). Read from the targets the last pass gave, not the solver's nodes, which only a
+        // pass working through their tree reads (and ScrollTo also runs between passes). False when it is not laid out
+        // inside it: not placed yet, out of layout, or under a root of its own.
         private static bool TryScrollRect(NodeState container, LayoutNode descendant, out Vector2 min, out Vector2 max)
         {
             min = max = default;
@@ -326,7 +326,7 @@ namespace TimboJimbo.UI.Layout
         }
 
         // Keeps what was asked of a scroll container for a pass to resolve (the latest ask wins), with the change it
-        // was asked in, if any.
+        // was asked in, if any: its tree is laid out in the next pass, which is that change's own inside Animate.
         private static void RequestScroll(ScrollState scroll, ScrollRequest kind, Vector2 offset, LayoutNode descendant, float anchor)
         {
             scroll.Request = kind;
@@ -334,6 +334,9 @@ namespace TimboJimbo.UI.Layout
             scroll.RequestTarget = descendant;
             scroll.RequestAnchor = anchor;
             scroll.RequestTransition = Current;
+            var tree = scroll.Offset.Owner?.Tree;
+            if (tree != null)
+                tree.Dirty = true;
         }
 
         private static void ClearRequest(ScrollState scroll)
@@ -420,6 +423,7 @@ namespace TimboJimbo.UI.Layout
             scroll.Raw = scroll.Unband(spring.Value);
             scroll.GlideX = scroll.GlideY = false;
             scroll.Wheeling = false;
+            Wake(spring.Owner);
         }
 
         // The press holding a scroll lets go of it at `velocity`. One that snaps (ScrollSnap) settles on the page or child

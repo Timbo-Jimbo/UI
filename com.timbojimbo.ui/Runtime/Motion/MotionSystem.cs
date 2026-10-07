@@ -200,11 +200,12 @@ namespace TimboJimbo.UI.Motion
             {
                 spring.Moving = true;
                 spring.SetOff = Time.frameCount;
+                LayoutSystem.Wake(spring.Owner);
             }
         }
 
         // Puts a spring where it is going, at rest, letting go of its transition, having `arrived` there or not (see
-        // Release).
+        // Release). Its node is drawn there.
         internal static void Stop(Spring spring, bool arrived = false)
         {
             spring.Value = spring.Target;
@@ -212,6 +213,7 @@ namespace TimboJimbo.UI.Motion
             spring.Delay = 0f;
             spring.Moving = false;
             Release(spring, arrived);
+            LayoutSystem.Wake(spring.Owner);
         }
 
         // Puts a spring at `value` at once, at rest. What `transition` itself set it moving for has only been replaced by

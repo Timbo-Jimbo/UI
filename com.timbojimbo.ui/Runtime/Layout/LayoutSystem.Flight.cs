@@ -321,11 +321,11 @@ namespace TimboJimbo.UI.Layout
         // A flight that is not shown (hidden, or under something hidden) leaves the layer at once, and is faded, clipped
         // and kept from the pointer along with what hid it (a page switched mid-flight). Out of it, the groups above it
         // reach it again: UGUI's raycasts stop looking up for them at its canvas, and a pair half ignores them. A
-        // follower stays while it is hidden: it is drawn at the node it follows, and lands with it. Shown again, and not
-        // made a destination by the change that showed it (`transition`, whose pairs have formed by now), it stops
-        // following and leaves (ShowAgain). One shrinking back into its anchor stays too, until its effect has played. A
-        // destination that drops out ends its pair first, and what followed it drops out in turn if it is not shown
-        // either, so the layer is looked through again.
+        // follower stays while it is hidden: it is drawn at the node it follows, and lands with it. Shown again (by a pass
+        // that laid out its tree: elsewhere nothing changed), and not made a destination by the change that showed it
+        // (`transition`, whose pairs have formed by now), it stops following and leaves (ShowAgain). One shrinking back
+        // into its anchor stays too, until its effect has played. A destination that drops out ends its pair first, and
+        // what followed it drops out in turn if it is not shown either, so the layer is looked through again.
         private static void DropOut(MotionTransition transition)
         {
             for (int i = s_flights.Count - 1; i >= 0; i--)
@@ -333,7 +333,7 @@ namespace TimboJimbo.UI.Layout
                 var state = s_flights[i];
                 if (state.Follows != null)
                 {
-                    if (state.PassShown && !state.WasShown)
+                    if (state.PassShown && !state.WasShown && state.Tree != null && state.Tree.LaidOut == s_pass)
                         ShowAgain(state, transition);
                     continue;
                 }

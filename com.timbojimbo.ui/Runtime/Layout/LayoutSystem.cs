@@ -19,13 +19,16 @@ namespace TimboJimbo.UI.Layout
     public static partial class LayoutSystem
     {
         // Once a frame, just before canvases are drawn (play mode and edit mode alike), Motion's frame (MotionSystem)
-        // has every tree laid out from its root: the solver says where each node goes, which becomes its targets; the
+        // goes through every tree from its root: the solver says where each node goes, which becomes its targets; the
         // springs of what is moving are stepped; and where each node is drawn is written into its RectTransform and
-        // CanvasGroup. Outside Animate a target that changes is taken up at once, so a drag moving a node's Offset
-        // follows the pointer exactly; Animate has the system lay out before and after its update, and what the update
-        // changed sets off on springs, held by the change (For Motion, below). A node moves on its own Animation, or on
-        // that of the nearest node above it with one, or else on the
-        // change's (AnimationOf). In edit mode nothing animates.
+        // CanvasGroup. As UIKit lays out only the views that need it, a tree is laid out only once something it is laid
+        // out from has changed (a node's settings, which nodes it has, what their content measures: Changed), and stepped
+        // and drawn only while something in it moves (Wake), so a screen at rest costs next to nothing (LayoutTree); edit
+        // mode does all of it for every tree. Outside Animate a target that changes is taken up at once, so a drag moving
+        // a node's Offset follows the pointer exactly; Animate has the system lay out before and after its update, and
+        // what the update changed sets off on springs, held by the change (For Motion, below). A node moves on its own
+        // Animation, or on that of the nearest node above it with one, or else on the change's (AnimationOf). In edit
+        // mode nothing animates.
         //
         // An outermost root keeps its content clear of the screen's safe area on the edges its SafeArea names, read
         // each pass: the solver adds the part of the unsafe area it covers to its padding. A software keyboard
@@ -116,17 +119,28 @@ namespace TimboJimbo.UI.Layout
         // Nodes whose Floating.Element is a mistake (in another tree, or circular), each said once.
         private static readonly HashSet<LayoutNode> s_warnedElement = new();
 
-        // A pass's scratch: the roots, outer before inner; one tree's nodes in pre-order, out of layout ones included;
-        // and its solver nodes, the first s_count of them in use, with the node each is (to find an element's).
+        // The roots, outer before inner, each with its tree (OwnTree), collected again only once a node has been enabled,
+        // disabled or moved.
         private static readonly List<NodeState> s_roots = new();
-        private static readonly List<NodeState> s_visit = new();
-        private static SolverNode[] s_solver = new SolverNode[64];
-        private static NodeState[] s_solved = new NodeState[64];
+        private static bool s_rootsDirty = true;
+
+        // The tree a pass is working through (UseTree): its nodes in pre-order, out of layout ones included; and its
+        // solver nodes, the first s_count of them in use, with the node each is (to find an element's).
+        private static LayoutTree s_tree;
+        private static List<NodeState> s_visit = new();
+        private static SolverNode[] s_solver = Array.Empty<SolverNode>();
+        private static NodeState[] s_solved = Array.Empty<NodeState>();
         private static int s_count;
         private static readonly Vector3[] s_corners = new Vector3[4];
 
-        // A pass is under way (a canvas update forced from inside one must not start another).
+        // A pass is under way (a canvas update forced from inside one must not start another), and how many have been, so
+        // a tree can tell whether the one it is inside was laid out or stepped in this one.
         private static bool s_passing;
+        private static int s_pass;
+
+        // Whether what a node last wrote is trusted to be what is there (play mode: the system owns it), so only what
+        // differs is written; in edit mode an undo can put back what was there, so each value is read back.
+        private static bool s_writeCache;
 
         // How far up the screen a software keyboard covers it, in screen pixels (KeyboardHeight).
         private static float s_keyboardHeight;
@@ -165,18 +179,28 @@ namespace TimboJimbo.UI.Layout
             ResetFlights();
             ResetMatch();
             s_roots.Clear();
-            s_visit.Clear();
+            s_rootsDirty = true;
+            s_tree = null;
+            s_visit = new List<NodeState>();
+            s_solver = Array.Empty<SolverNode>();
+            s_solved = Array.Empty<NodeState>();
             s_count = 0;
-            Array.Clear(s_solver, 0, s_solver.Length);
-            Array.Clear(s_solved, 0, s_solved.Length);
+            s_pass = 0;
+            s_writeCache = false;
             // Nodes register and unregister themselves as they are enabled and disabled, so the set keeps itself; any
-            // an earlier session left behind that are gone are dropped. Motion's canvas hook lasts as long as the statics
-            // do, so it stays.
+            // an earlier session left behind that are gone are dropped. What is kept for the rest is laid out and written
+            // afresh, in new trees. Motion's canvas hook lasts as long as the statics do, so it stays.
             var gone = new List<LayoutNode>();
-            foreach (var node in s_states.Keys)
+            foreach (var pair in s_states)
             {
-                if (node == null)
-                    gone.Add(node);
+                if (pair.Key == null)
+                {
+                    gone.Add(pair.Key);
+                    continue;
+                }
+                var state = pair.Value;
+                state.Tree = state.OwnTree = null;
+                state.RectWritten = state.GroupWritten = false;
             }
             foreach (var node in gone)
                 s_states.Remove(node);
@@ -305,10 +329,14 @@ namespace TimboJimbo.UI.Layout
 
         internal static void Register(LayoutNode node)
         {
-            if (!s_states.ContainsKey(node))
-                s_states.Add(node, new NodeState(node));
+            if (!s_states.TryGetValue(node, out var state))
+            {
+                state = new NodeState(node);
+                s_states.Add(node, state);
+            }
             // From the first node registered on, Motion's frame runs, which lays the nodes out.
             MotionSystem.Hook();
+            JoinedOrLeft(state);
             Changed(node);
         }
 
@@ -319,6 +347,7 @@ namespace TimboJimbo.UI.Layout
         {
             if (s_states.TryGetValue(node, out var state))
             {
+                JoinedOrLeft(state);
                 s_states.Remove(node);
                 Stop(state.Position);
                 Stop(state.Size);
@@ -364,13 +393,20 @@ namespace TimboJimbo.UI.Layout
             Changed(node);
         }
 
-        // Something about the node changed; outside play mode, the editor should draw it again.
+        // Something about the node, or on its object, changed (one of its settings, what its content measures): its tree
+        // is laid out again in the next pass, which is that change's own inside Animate. Outside play mode the editor
+        // should draw it again.
         internal static void Changed(LayoutNode node)
         {
-            // Changed inside Animate, a caught node is let go of: the change moves it on from where it was stopped (a
-            // drag letting go puts its Offset back, and whatever else it held sets off again with it).
-            if (Current != null && s_states.TryGetValue(node, out var state))
-                LetGoOfHolds(state);
+            if (s_states.TryGetValue(node, out var state))
+            {
+                if (state.Tree != null)
+                    state.Tree.Dirty = true;
+                // Changed inside Animate, a caught node is let go of: the change moves it on from where it was stopped (a
+                // drag letting go puts its Offset back, and whatever else it held sets off again with it).
+                if (Current != null)
+                    LetGoOfHolds(state);
+            }
 #if UNITY_EDITOR
             // In play mode the next frame lays it out anyway. In edit mode the player loop, and with it the canvas
             // update this lays out in, only runs when something asks for it.
@@ -378,6 +414,37 @@ namespace TimboJimbo.UI.Layout
             UnityEditor.EditorApplication.QueuePlayerLoopUpdate();
             UnityEditorInternal.InternalEditorUtility.RepaintAllViews();
 #endif
+        }
+
+        // It, or something above it, was moved under another parent: it may have left one tree and joined another.
+        internal static void Reparented(LayoutNode node)
+        {
+            if (s_states.TryGetValue(node, out var state))
+                JoinedOrLeft(state);
+            Changed(node);
+        }
+
+        // A node joined a tree, left one or moved between two: the tree it was last laid out in is laid out again, and
+        // so is its parent's, which it is in now unless it is a root. The roots are collected again, which finds a root
+        // that is new (laid out as a tree of its own) or no longer one.
+        private static void JoinedOrLeft(NodeState state)
+        {
+            s_rootsDirty = true;
+            if (state.Tree != null)
+                state.Tree.Dirty = true;
+            var parent = state.RectTransform.parent;
+            if (parent != null && parent.TryGetComponent(out LayoutNode node) && s_states.TryGetValue(node, out var parentState)
+                && parentState.Tree != null)
+                parentState.Tree.Dirty = true;
+        }
+
+        // Something in a node's tree was set moving or put somewhere at once (each of its springs, its scroll offset's
+        // too, as it sets off or stops: MotionSystem.Hold and Stop; a drag scrolling it): the tree is stepped and drawn
+        // in the next frame, however long it has been still.
+        internal static void Wake(NodeState state)
+        {
+            if (state?.Tree != null)
+                state.Tree.Quiet = false;
         }
 
         internal static bool IsRoot(LayoutNode node)
@@ -545,7 +612,7 @@ namespace TimboJimbo.UI.Layout
         internal static void SetScrollOffset(LayoutNode node, Vector2 offset)
         {
             if (!Application.isPlaying || node.Scroll == ScrollAxis.None || !s_states.TryGetValue(node, out var state)) return;
-            var scroll = state.Scroll ??= new ScrollState();
+            var scroll = state.Scroll ??= new ScrollState(state);
             if (Current == null && scroll.Measured && scroll.Axis != ScrollAxis.None)
             {
                 ClearRequest(scroll);
@@ -588,7 +655,7 @@ namespace TimboJimbo.UI.Layout
                 WarnScrollTo(node, descendant, kind);
                 return;
             }
-            var scroll = state.Scroll ??= new ScrollState();
+            var scroll = state.Scroll ??= new ScrollState(state);
             if (Current == null && scroll.Measured && scroll.Axis != ScrollAxis.None
                 && TryScrollRect(state, descendant, out var min, out var max))
             {
@@ -631,12 +698,13 @@ namespace TimboJimbo.UI.Layout
         /// How far up from the bottom of the screen a software keyboard covers it, in screen pixels (the space of
         /// <see cref="Screen.safeArea"/>): 0 with none up, and with one floating or split, which is not docked at the
         /// bottom. A node that avoids it (<see cref="LayoutNode.AvoidsKeyboard"/>), as a view laid out against UIKit's
-        /// keyboard layout guide does, keeps what it holds above it where it covers the node; nothing else moves for it,
-        /// as UIKit's safe area leaves the keyboard out. Whatever tracks the keyboard sets it (the UI Text Input package's
-        /// TextInputSystem does). Set once a frame as the keyboard slides, outside any change, layout follows it exactly,
-        /// every root being laid out each frame; set inside <see cref="MotionSystem.Animate(MotionAnimation, Action, string[])"/>,
-        /// what it moves springs. Outside play mode there is no keyboard: it reads 0 and setting it does nothing, as a
-        /// scroll offset stays at the start, so one still up as play mode ends in the editor goes with it.
+        /// keyboard layout guide does, keeps what it holds above it where it covers the node; nothing else moves for
+        /// it, as UIKit's safe area leaves the keyboard out. Whatever tracks the keyboard sets it (the UI Text Input
+        /// package's TextInputSystem does). Set once a frame as the keyboard slides, outside any change, layout follows
+        /// it exactly (where it lies against each tree with a node that avoids it is read every frame); set inside
+        /// <see cref="MotionSystem.Animate(MotionAnimation, Action, string[])"/>, what it moves springs. Outside play
+        /// mode there is no keyboard: it reads 0 and setting it does nothing, as a scroll offset stays at the start, so
+        /// one still up as play mode ends in the editor goes with it.
         /// </summary>
         public static float KeyboardHeight
         {
@@ -651,20 +719,33 @@ namespace TimboJimbo.UI.Layout
         // ── The frame ────────────────────────────────────────────────────────────
 
         // Each tree in turn, outer roots first, is laid out, stepped and drawn before the next is laid out, so a root
-        // inside a node (under a plain object) lays out in that node's rect as drawn this frame. Motion's frame runs it
-        // once a frame, and again without stepping when a Finished handler may have shown, made or moved nodes, or a
-        // glide handed its speed on (HandOn): what moved is then laid out and drawn this frame too, from where it is,
-        // rather than drawn once where it was first.
+        // inside a node (under a plain object) lays out in that node's rect as drawn this frame. In play mode a tree is
+        // laid out only when something it is laid out from has changed (NeedsLayout), and stepped and drawn only when it
+        // was laid out, something in it moved in the frame before (Quiet), or the tree it is inside is stepped, whose
+        // nodes it goes by (shown, leaving, taking the pointer); in edit mode every tree is. Motion's frame runs it once a
+        // frame, and again without stepping when a Finished handler may have shown, made or moved nodes, or a glide
+        // handed its speed on (HandOn): what moved is then laid out and drawn this frame too, from where it is, rather
+        // than drawn once where it was first.
         internal static void Frame(bool playing, bool step, float dt)
         {
             s_passing = true;
+            s_pass++;
+            s_writeCache = playing;
             try
             {
                 s_following.Clear();
-                CollectRoots();
+                RefreshRoots();
                 for (int r = 0; r < s_roots.Count; r++)
                 {
-                    LayOut(s_roots[r], null);
+                    var root = s_roots[r];
+                    var tree = root.OwnTree;
+                    if (!playing || NeedsLayout(tree))
+                        LayOut(tree, null);
+                    else if (tree.Quiet && (root.Above?.Tree == null || root.Above.Tree.Stepped != s_pass))
+                        continue;
+                    else
+                        UseTree(tree);
+                    tree.Stepped = s_pass;
                     // The whole tree is stepped before any of it is drawn: a scroll container's offset before its
                     // children are drawn by it, and every offset before a node floating against an element takes up
                     // those the element is drawn by, wherever they are in the tree. In pre-order, so each node's parent
@@ -702,6 +783,7 @@ namespace TimboJimbo.UI.Layout
                         if (state.Fitting && !state.Size.Moving && state.Size.Value == state.LaidOutSize)
                             state.Fitting = false;
                     }
+                    bool still = true;
                     for (int i = 0; i < s_visit.Count; i++)
                     {
                         var state = s_visit[i];
@@ -714,7 +796,10 @@ namespace TimboJimbo.UI.Layout
                             Write(state);
                         if (playing)
                             QueueShownChanged(state);
+                        if (still && Moves(state))
+                            still = false;
                     }
+                    tree.Quiet = still;
                 }
                 // In the order they were met, outer trees first and parents before children, so one inside another
                 // (an avatar in a card, each following its own) is drawn once that one has been. What they follow is
@@ -729,22 +814,51 @@ namespace TimboJimbo.UI.Layout
             }
         }
 
-        // Lays out every tree and gives each node its targets: at once without a transition, and with one, what
-        // changed sets off on springs held by it, and who holds each name before and after the change is noted for
-        // MatchPairs. Nothing is stepped or drawn: the frame does that.
+        // Whether a node, stepped and drawn again, could be drawn otherwise in the next frame, which keeps its tree from
+        // going quiet: a spring of it moving; its scroll held by a press, gliding or springing, or an indicator of it
+        // showing (fading out once it is still); flying, following the node that took over from it by name, or growing out
+        // of an anchor, each drawn by where something else is; or on its way out, which waits on what is above it. Whatever
+        // else draws it otherwise wakes its tree, or has it laid out again.
+        private static bool Moves(NodeState state)
+        {
+            if (state.Position.Moving || state.Size.Moving || state.Opacity.Moving || state.Scale.Moving || state.Shown.Moving
+                || state.Flight != null || state.Follows != null || state.Anchor != null || state.Leaving)
+                return true;
+            var scroll = state.Scroll;
+            return scroll != null && (scroll.Phase != ScrollPhase.Idle || scroll.IndicatorShown != Vector2.zero);
+        }
+
+        // Lays out every tree something has changed in (NeedsLayout) and gives each node in it its targets: at once
+        // without a transition, and with one, what changed sets off on springs held by it, and who holds each name before
+        // and after the change is noted for MatchPairs (in a tree that is not laid out nothing changed, so what holds a
+        // name there holds it before and after). Nothing is stepped or drawn: the frame does that, a tree laid out here
+        // included.
         private static void Pass(MotionTransition transition)
         {
             if (s_passing) return;
             s_passing = true;
+            s_pass++;
+            s_writeCache = Application.isPlaying;
             // Noted afresh for each change: MatchPairs forgets them once it has read them, but not if this pass threw.
             s_matching = transition != null;
             if (s_matching)
                 ClearKeys();
             try
             {
-                CollectRoots();
+                RefreshRoots();
                 for (int r = 0; r < s_roots.Count; r++)
-                    LayOut(s_roots[r], transition);
+                {
+                    var tree = s_roots[r].OwnTree;
+                    if (NeedsLayout(tree))
+                    {
+                        LayOut(tree, transition);
+                        tree.Quiet = false;
+                    }
+                    else if (s_matching)
+                    {
+                        NoteHolders(tree);
+                    }
+                }
             }
             finally
             {
@@ -753,24 +867,38 @@ namespace TimboJimbo.UI.Layout
             }
         }
 
-        // Every root, outer before inner (by depth, so an ancestor always comes first), each with the nearest enabled
-        // node above it (Above), which is in a tree laid out before it.
-        private static void CollectRoots()
+        // Every root, outer before inner (by depth, so an ancestor always comes first), each with its tree and the
+        // nearest enabled node above it (Above), which is in a tree laid out before it; collected again only once a node
+        // has been enabled, disabled or moved (JoinedOrLeft). A tree whose root has another node above it than before is
+        // laid out again, as what it is inside decides how it is shown.
+        private static void RefreshRoots()
         {
+            if (!s_rootsDirty) return;
+            s_rootsDirty = false;
             s_roots.Clear();
             foreach (var pair in s_states)
             {
                 var node = pair.Key;
-                if (node == null || !IsRoot(node)) continue;
                 var state = pair.Value;
-                state.Depth = 0;
-                state.Above = null;
+                if (node == null || !IsRoot(node))
+                {
+                    state.OwnTree = null;
+                    continue;
+                }
+                int depth = 0;
+                NodeState above = null;
                 for (var t = node.transform.parent; t != null; t = t.parent)
                 {
-                    state.Depth++;
-                    if (state.Above == null && t.TryGetComponent(out LayoutNode above) && s_states.TryGetValue(above, out var aboveState))
-                        state.Above = aboveState;
+                    depth++;
+                    if (above == null && t.TryGetComponent(out LayoutNode aboveNode) && s_states.TryGetValue(aboveNode, out var aboveState))
+                        above = aboveState;
                 }
+                if (state.OwnTree == null)
+                    state.OwnTree = new LayoutTree(state);
+                else if (above != state.Above)
+                    state.OwnTree.Dirty = true;
+                state.Depth = depth;
+                state.Above = above;
                 int at = s_roots.Count;
                 while (at > 0 && s_roots[at - 1].Depth > state.Depth)
                     at--;
@@ -778,24 +906,66 @@ namespace TimboJimbo.UI.Layout
             }
         }
 
+        // Whether a tree is laid out in this pass: something it is laid out from has changed since it last was (Dirty), the
+        // tree it is inside was laid out in this pass, or what its root lies against is not what it was (its size, the
+        // safe area it keeps clear of, or where a keyboard's top lies in it while a node in it avoids one), which is read
+        // every pass, as Unity says nothing when it changes (a rotation, the simulator's device, the keyboard sliding).
+        private static bool NeedsLayout(LayoutTree tree)
+        {
+            if (tree.Dirty) return true;
+            var root = tree.Root;
+            var above = root.Above?.Tree;
+            if (above != null && above.LaidOut == s_pass) return true;
+            return root.RectTransform.rect.size != tree.RootSize
+                || SafeAreaOf(root) != tree.SafeArea
+                || (tree.Avoiding > 0 && KeyboardTopOf(root) != tree.KeyboardTop);
+        }
+
+        // Makes a tree the one the pass is working through: its nodes, and its solver's nodes as last solved.
+        private static void UseTree(LayoutTree tree)
+        {
+            s_tree = tree;
+            s_visit = tree.Visit;
+            s_solver = tree.Solver;
+            s_solved = tree.Solved;
+            s_count = tree.Count;
+        }
+
         // Solves one tree, in its root's rect, its content kept clear of the safe area, and places each of its nodes;
         // then, the whole tree placed (a ScrollTo reads where its descendant goes), each scroll container in it takes up
         // its new range and what was asked of it. Last, a flight no longer shown drops out and a follower shown again
         // stops following, bar in a change's own pass, where that waits for the change's pairs to form and its flights to
-        // board (Animate).
-        private static void LayOut(NodeState root, MotionTransition transition)
+        // board (Animate). What it was laid out against is kept for NeedsLayout, and what changes it while it is laid out
+        // (content laid out at its new size, say) has it laid out again.
+        private static void LayOut(LayoutTree tree, MotionTransition transition)
         {
+            var root = tree.Root;
+            tree.Dirty = false;
+            tree.LaidOut = s_pass;
+            int was = tree.Count;
+            UseTree(tree);
             s_visit.Clear();
+            tree.Named.Clear();
             s_count = 0;
             s_avoiding = 0;
             Visit(root, null, true, -1, root.RectTransform.GetSiblingIndex());
+            // The arrays may have grown in the visit; what is past the end lets go of what it held.
+            tree.Solver = s_solver;
+            tree.Solved = s_solved;
+            tree.Count = s_count;
+            if (s_count < was)
+            {
+                Array.Clear(s_solver, s_count, was - s_count);
+                Array.Clear(s_solved, s_count, was - s_count);
+            }
+            tree.Avoiding = s_avoiding;
+            tree.RootSize = root.RectTransform.rect.size;
+            tree.SafeArea = SafeAreaOf(root);
+            tree.KeyboardTop = s_avoiding > 0 ? KeyboardTopOf(root) : float.PositiveInfinity;
             if (s_count > 0)
             {
                 bool attached = FindElements(root);
-                var size = root.RectTransform.rect.size;
-                var safeArea = SafeAreaOf(root);
-                float keyboardTop = s_avoiding > 0 ? KeyboardTopOf(root) : float.PositiveInfinity;
-                bool keyboard = !float.IsPositiveInfinity(keyboardTop);
+                bool keyboard = !float.IsPositiveInfinity(tree.KeyboardTop);
                 if (keyboard)
                 {
                     if (s_paddings.Length < s_count)
@@ -803,9 +973,9 @@ namespace TimboJimbo.UI.Layout
                     for (int i = 0; i < s_count; i++)
                         s_paddings[i] = s_solver[i].Padding;
                 }
-                LayoutSolver.Solve(s_solver, s_count, size, safeArea);
-                if (keyboard && AvoidKeyboard(keyboardTop))
-                    LayoutSolver.Solve(s_solver, s_count, size, safeArea);
+                LayoutSolver.Solve(s_solver, s_count, tree.RootSize, tree.SafeArea);
+                if (keyboard && AvoidKeyboard(tree.KeyboardTop))
+                    LayoutSolver.Solve(s_solver, s_count, tree.RootSize, tree.SafeArea);
                 if (attached)
                     WarnCircular();
             }
@@ -935,6 +1105,7 @@ namespace TimboJimbo.UI.Layout
         private static int Visit(NodeState state, NodeState parent, bool inLayout, int parentIndex, int sibling)
         {
             var node = state.Node;
+            state.Tree = s_tree;
             state.PassParent = parent;
             // Where it is, and whether it is shown down to here, for the flight layer and names; a root's place follows
             // the node above it, whose tree is laid out first. Then its name and id, which it holds while shown.
@@ -944,6 +1115,8 @@ namespace TimboJimbo.UI.Layout
             state.WasShown = state.PassShown;
             state.PassShown = node.Display == DisplayMode.Visible && (above == null || above.PassShown);
             RecordKey(state, above);
+            if (state.PassName.Length > 0)
+                s_tree.Named.Add(state);
             // Its drag owner, looked up for every node met as its content is, before its scroll is set up: either one
             // wants the LayoutScroller that takes the pointer for it.
             node.TryGetComponent(out state.Draggable);
@@ -1746,20 +1919,21 @@ namespace TimboJimbo.UI.Layout
 
         // ── Drawing ──────────────────────────────────────────────────────────────
 
-        // Writes where a node is drawn into what it owns, each value only when it differs from what is there, so an
-        // unchanged scene is not dirtied in edit mode and UGUI rebuilds nothing for nothing. A non-root's RectTransform
-        // is anchored at its parent's top-left corner, pivoted on its centre, at its centre (y up; moved by its slide,
-        // and back by its parent's scroll offset, when its parent scrolls) and size, scaled around it by its Scale and
-        // its effect's shrink. Its CanvasGroup takes its opacity while it is Visible or on its way out (none
-        // otherwise), and blocks raycasts only while it is Visible, its Opacity is above 0 (UIKit does not hit-test a
-        // view whose alpha is below 0.01, nor SwiftUI one of opacity 0, while a CanvasGroup's alpha alone does not stop
-        // UGUI's raycasts), and it is not moving for a change that is not interactive; not blocking them takes the
-        // pointer from everything inside it too. A flight's, which the groups above it do not reach, also stops blocking
-        // them while anything above it takes no pointer. One is added only once it is needed (faded, or not to be
-        // clicked). A node following the one that took over from it by name is drawn at that one's rect instead, at its
-        // own opacity, and takes no pointer; a destination flying, which ignores its parent groups, is drawn at its
-        // opacity times what theirs are going to. Taking over by name or growing out of an anchor, it fills the rect it
-        // moves through by its MatchFit, and while it flies with MatchClip it is cut to it (LayoutSystem.Match.cs).
+        // Writes where a node is drawn into what it owns, each value only when it differs from what it last wrote there
+        // (in edit mode, from what is there, which an undo can change), so an unchanged scene is not dirtied in edit
+        // mode and UGUI rebuilds nothing for nothing. A non-root's RectTransform is anchored at its parent's top-left
+        // corner, pivoted on its centre, at its centre (y up; moved by its slide, and back by its parent's scroll
+        // offset, when its parent scrolls) and size, scaled around it by its Scale and its effect's shrink. Its
+        // CanvasGroup takes its opacity while it is Visible or on its way out (none otherwise), and blocks raycasts
+        // only while it is Visible, its Opacity is above 0 (UIKit does not hit-test a view whose alpha is below 0.01,
+        // nor SwiftUI one of opacity 0, while a CanvasGroup's alpha alone does not stop UGUI's raycasts), and it is not
+        // moving for a change that is not interactive; not blocking them takes the pointer from everything inside it
+        // too. A flight's, which the groups above it do not reach, also stops blocking them while anything above it
+        // takes no pointer. One is added only once it is needed (faded, or not to be clicked). A node following the one
+        // that took over from it by name is drawn at that one's rect instead, at its own opacity, and takes no pointer;
+        // a destination flying, which ignores its parent groups, is drawn at its opacity times what theirs are going
+        // to. Taking over by name or growing out of an anchor, it fills the rect it moves through by its MatchFit, and
+        // while it flies with MatchClip it is cut to it (LayoutSystem.Match.cs).
         private static void Write(NodeState state)
         {
             var node = state.Node;
@@ -1777,7 +1951,7 @@ namespace TimboJimbo.UI.Layout
                 if (Fitted(state))
                     WriteFitted(state, centre, size, DrawnScaleOf(state), node.MatchFit);
                 else
-                    WriteRect(state.RectTransform, centre, size, DrawnScaleOf(state));
+                    WriteRect(state, centre, size, DrawnScaleOf(state));
             }
             if (state.Flight != null)
             {
@@ -1796,6 +1970,11 @@ namespace TimboJimbo.UI.Layout
             bool clickable = BlocksRaycasts(state, visible && node.Opacity > 0f && state.Follows == null
                 && !Uninteractive(state.Position) && !Uninteractive(state.Size) && !Uninteractive(state.Opacity)
                 && !Uninteractive(state.Scale) && !Uninteractive(state.Shown));
+            if (s_writeCache && state.GroupWritten && alpha == state.WrittenAlpha && clickable == state.WrittenClickable)
+                return;
+            state.GroupWritten = s_writeCache;
+            state.WrittenAlpha = alpha;
+            state.WrittenClickable = clickable;
             if (state.Group == null && !node.TryGetComponent(out state.Group))
             {
                 if (alpha >= 1f && clickable) return;
@@ -1808,22 +1987,41 @@ namespace TimboJimbo.UI.Layout
         // Puts a node's RectTransform at `centre` and `size` in its parent's layout space (y down, from its top-left
         // corner, as drawn: any scroll already taken off), scaled around its centre: anchored at that corner and
         // pivoted on its centre.
-        private static void WriteRect(RectTransform rt, Vector2 centre, Vector2 size, float scale) =>
-            WriteRect(rt, centre, size, new Vector2(scale, scale));
+        private static void WriteRect(NodeState state, Vector2 centre, Vector2 size, float scale) =>
+            WriteRect(state, centre, size, new Vector2(scale, scale));
 
-        // The same, scaled by as much as `scale` says along each of its axes (a picture of a node fitted to a rect).
-        private static void WriteRect(RectTransform rt, Vector2 centre, Vector2 size, Vector2 scale)
+        // The same, scaled by as much as `scale` says along each of its axes (a picture of a node fitted to a rect). In
+        // play mode only what differs from what it last wrote is written, without reading back what is there.
+        private static void WriteRect(NodeState state, Vector2 centre, Vector2 size, Vector2 scale)
         {
+            var rt = state.RectTransform;
+            var position = new Vector2(centre.x, -centre.y);
+            if (s_writeCache && state.RectWritten)
+            {
+                if (position != state.WrittenPosition)
+                    rt.anchoredPosition = state.WrittenPosition = position;
+                if (size != state.WrittenSize)
+                    rt.sizeDelta = state.WrittenSize = size;
+                if (scale != state.WrittenScale)
+                {
+                    state.WrittenScale = scale;
+                    rt.localScale = new Vector3(scale.x, scale.y, 1f);
+                }
+                return;
+            }
             var anchor = new Vector2(0f, 1f);
             if (rt.anchorMin != anchor) rt.anchorMin = anchor;
             if (rt.anchorMax != anchor) rt.anchorMax = anchor;
             var pivot = new Vector2(0.5f, 0.5f);
             if (rt.pivot != pivot) rt.pivot = pivot;
-            var position = new Vector2(centre.x, -centre.y);
             if (rt.anchoredPosition != position) rt.anchoredPosition = position;
             if (rt.sizeDelta != size) rt.sizeDelta = size;
             var scaled = new Vector3(scale.x, scale.y, 1f);
             if (rt.localScale != scaled) rt.localScale = scaled;
+            state.RectWritten = s_writeCache;
+            state.WrittenPosition = position;
+            state.WrittenSize = size;
+            state.WrittenScale = scale;
         }
 
         // Whether a spring is moving for a change made with interactive false: until it comes to rest, or is taken
@@ -1831,11 +2029,13 @@ namespace TimboJimbo.UI.Layout
         // pointer. Scroll offsets are not asked: a scroll springing does not move the node.
         private static bool Uninteractive(Spring spring) => spring.Transition != null && !spring.Transition.Interactive;
 
-        // Takes over a node's RectTransform (it is no longer a root), telling the editor so.
+        // Takes over a node's RectTransform (it is no longer a root), telling the editor so. What it holds is read back the
+        // first time it is written: something else may have set it while it was not the system's.
         private static void Own(NodeState state)
         {
             if (state.Owned) return;
             state.Owned = true;
+            state.RectWritten = false;
             state.Tracker.Add(state.Node, state.RectTransform, Driven);
         }
 
@@ -1844,6 +2044,7 @@ namespace TimboJimbo.UI.Layout
         {
             if (!state.Owned) return;
             state.Owned = false;
+            state.RectWritten = false;
             state.Tracker.Clear();
         }
 

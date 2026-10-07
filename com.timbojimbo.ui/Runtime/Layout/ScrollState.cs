@@ -144,6 +144,9 @@ namespace TimboJimbo.UI.Layout
         public Vector2 IndicatorStill;
         public Vector2 IndicatorAt;
 
+        // Made for the node it scrolls, whose tree its offset wakes as it sets off and stops.
+        public ScrollState(NodeState owner) => Offset.Owner = owner;
+
         /// <summary>Whether it scrolls along <paramref name="axis"/> (0 is x, 1 is y).</summary>
         public bool Scrolls(int axis) => axis == 0
             ? Axis == ScrollAxis.Horizontal || Axis == ScrollAxis.Both
@@ -302,12 +305,14 @@ namespace TimboJimbo.UI.Layout
             Offset.Delay = 0f;
         }
 
-        // The raw offset moves by what a share took, and it is drawn there, rubber-banded past the ends.
+        // The raw offset moves by what a share took, and it is drawn there, rubber-banded past the ends: what it scrolls is
+        // drawn moved this frame.
         private void MoveRaw(Vector2 taken)
         {
             if (taken == Vector2.zero) return;
             Raw += taken;
             Offset.Value = Band(Raw);
+            LayoutSystem.Wake(Offset.Owner);
         }
 
         /// <summary>

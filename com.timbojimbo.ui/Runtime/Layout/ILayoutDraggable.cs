@@ -18,7 +18,8 @@ namespace TimboJimbo.UI.Layout
     /// system's (a ScrollRect, say), and is locked to the axis it sets off along: it takes part when its
     /// <see cref="DragAxis"/> includes that axis. Several in one chain are offered each move outermost first; when one
     /// with <see cref="PassOnMidDrag"/> false is among them, the innermost such one decides over everything inside it, and
-    /// the drag is not shared. Scroll containers need no code to take part.
+    /// the drag is not shared. Scroll containers need no code to take part. Layout finds it on its node as it lays the
+    /// node's tree out: one added, enabled or disabled later tells its node (<see cref="LayoutNode.ContentChanged"/>).
     /// </remarks>
     public interface ILayoutDraggable
     {
