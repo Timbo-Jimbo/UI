@@ -21,6 +21,12 @@ Needs Core's next version (`ColorExtra.Lerp(mode, from, to, t)`).
 - A node flying (moved to another parent, or taking over by name, inside Animate) drew above, and took presses from, other root canvases drawn above its own, a dialog's say: flights are numbered from just above the highest order anything in their own root canvas draws at, rather than from 30000
 - A flight took the pointer while its root canvas's raycaster was switched off: the raycaster added to it follows the root canvas's on and off
 - A list pulled past its end jumped under the finger when its range or size changed during the drag (rows added to a list pulled to load more): it stays drawn where it is, as a UIScrollView's offset stays when its content size changes
+- Focus: a modal destroyed (rather than disabled or hidden) never gave focus back; modals closing together (a confirm and the sheet it was opened from) gave it back to something inside the outer one; and a modal opening as another closed would give it back to something inside the closed one. Modals that go together give focus back to what opened the outermost of them, and one opening as another closes to what opened that one
+- Focus left on a destroyed object (a row removed from a list) came back only with the next key press, and then to the screen's first stop: it comes back from the scope it was in, as focus on something hidden does
+- Holding the direction that woke focus kept Submit and Cancel from what has focus, as the input module sends neither while it sends no moves: they are sent to it
+- Focus steering allocated every frame, through reading order, which made new lists and closures each time it was asked (a scope entered at its last focused or default, with neither yet, asks every frame)
+- Variants: an entry recorded before its field was retyped (a float made a Vector2) was written as the wrong kind, and threw, when another variant's entry for the same property was of the right kind
+- Variants: adding a property to a variant, or taking one out, from a property's menu in play mode left the set applying its old entries, and threw once one was taken out
 
 ## [0.4.0] - 06/10/2026
 

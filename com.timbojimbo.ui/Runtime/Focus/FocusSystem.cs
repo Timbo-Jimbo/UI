@@ -59,8 +59,10 @@ namespace TimboJimbo.UI.Focus
         private static Navigation s_authored;
 
         private static GameObject s_lastSelected;
-        // The last Selectable that had focus and could take it, kept through a deselecting click.
+        // The last Selectable that had focus and could take it, kept through a deselecting click, and the innermost scope
+        // it was in, where focus left on it as it is destroyed comes back to.
         private static Selectable s_lastFocused;
+        private static FocusScope s_lastScope;
         private static bool s_visible;
         // Whether focus showed as the last frame ended, before this frame's input: a direction pressed while it did not
         // wakes it rather than moving it.
@@ -104,6 +106,7 @@ namespace TimboJimbo.UI.Focus
             s_steered = null;
             s_lastSelected = null;
             s_lastFocused = null;
+            s_lastScope = null;
             s_visible = false;
             s_shown = false;
             s_moving = false;
@@ -233,6 +236,15 @@ namespace TimboJimbo.UI.Focus
             var submitAction = module != null && module.submit != null ? module.submit.action : null;
             bool submit = submitAction != null && submitAction.WasPressedThisFrame();
 
+            // While a direction that woke focus is held the EventSystem sends no moves, and the input module, checking that
+            // first, sends no Submit or Cancel either: they go to what has focus from here, as the module would send them.
+            if (s_muted != null && events.currentSelectedGameObject != null && (submit || cancel))
+            {
+                var data = new BaseEventData(events);
+                if (submit) ExecuteEvents.Execute(events.currentSelectedGameObject, data, ExecuteEvents.submitHandler);
+                if (cancel) ExecuteEvents.Execute(events.currentSelectedGameObject, data, ExecuteEvents.cancelHandler);
+            }
+
             // A key kept by what keeps keys for itself (IFocusKeyHandler: a text field being edited keeps Enter and Escape)
             // is left to it entirely. It said so as the last frame ended, before this frame's keys came in, rather than
             // now: it may have acted on the key since (Escape stops the field's editing, after which it keeps Escape no
@@ -293,6 +305,16 @@ namespace TimboJimbo.UI.Focus
                 else
                     events.SetSelectedGameObject(null);
             }
+            else if (selected == null && !ReferenceEquals(selected, null))
+            {
+                // Focus left on something destroyed (a row removed from a list), which is no Selectable any more: brought
+                // back to where it belongs from the scope it was in while focus shows, as focus lost otherwise is; let go
+                // of otherwise.
+                if (s_visible)
+                    Select(events, RecoverFrom(s_lastScope) ?? First(container));
+                else
+                    events.SetSelectedGameObject(null);
+            }
             else if ((selected == null || !selected.activeInHierarchy) && (navigated || tab))
             {
                 // Navigation with nothing focused puts focus somewhere, and does not move it on.
@@ -323,6 +345,7 @@ namespace TimboJimbo.UI.Focus
                 if (current != null && s_candidateSet.Contains(current))
                 {
                     s_lastFocused = current;
+                    s_lastScope = Innermost(Around(current));
                     Remember(current);
                     if (s_visible)
                         BringIntoView(current);
@@ -404,26 +427,33 @@ namespace TimboJimbo.UI.Focus
         // The modal or group focus moves in (the topmost entered), or null for the whole screen.
         private static FocusScope Container => s_entered.Count > 0 ? s_entered[^1].Scope : null;
 
-        // What is entered as scopes come and go: one no longer active (disabled, hidden, on its way out) leaves, the topmost
-        // modal giving focus back as it goes (`restore`); modals newly active are entered in the order they became so, the
-        // last taking focus (`take`).
+        // What is entered as scopes come and go: one no longer active (disabled, hidden, on its way out, destroyed) leaves.
+        // Modals leaving above every modal that stays give focus back to what opened the outermost of them (`restore`): a
+        // confirm closing with the sheet it was opened from gives it back to what opened the sheet. Modals newly active are
+        // entered in the order they became so, the last taking focus (`take`); one opening as another closes is to give it
+        // back to what opened that one, focus being inside the one closing.
         private static void UpdateEntered(EventSystem events, out FocusScope take, out GameObject restore)
         {
             take = null;
             restore = null;
-            int topModal = -1;
+            int kept = -1;
             for (int i = 0; i < s_entered.Count; i++)
             {
-                if (s_entered[i].Scope != null && s_entered[i].Scope.Kind == FocusScopeKind.Modal)
-                    topModal = i;
+                var scope = s_entered[i].Scope;
+                if (scope != null && scope.Active && scope.Kind == FocusScopeKind.Modal)
+                    kept = i;
+            }
+            for (int i = kept + 1; i < s_entered.Count; i++)
+            {
+                if (!IsModal(s_entered[i].Scope)) continue;
+                restore = s_entered[i].Restore;
+                break;
             }
             for (int i = s_entered.Count - 1; i >= 0; i--)
             {
-                var (scope, back) = s_entered[i];
-                if (scope != null && scope.Active) continue;
-                if (i == topModal)
-                    restore = back;
-                s_entered.RemoveAt(i);
+                var scope = s_entered[i].Scope;
+                if (scope == null || !scope.Active)
+                    s_entered.RemoveAt(i);
             }
 
             while (true)
@@ -436,11 +466,14 @@ namespace TimboJimbo.UI.Focus
                         next = scope;
                 }
                 if (next == null) break;
-                s_entered.Add((next, events.currentSelectedGameObject));
+                s_entered.Add((next, restore ?? events.currentSelectedGameObject));
                 take = next;
                 restore = null;
             }
         }
+
+        // Whether a scope is a modal, destroyed or not: a destroyed one's settings are still there to read.
+        private static bool IsModal(FocusScope scope) => !ReferenceEquals(scope, null) && scope.Kind == FocusScopeKind.Modal;
 
         // Entered groups follow what is focused: focus outside the innermost (a click elsewhere, or Back, which focuses
         // the group's stop) leaves it, and focus inside groups not entered (a click on something in one) enters them,
@@ -599,9 +632,12 @@ namespace TimboJimbo.UI.Focus
 
         // Where focus lost from `lost` comes back to: what the innermost scope around it picks (Target), or, with nothing
         // left there that can take focus (every notification cleared), the next scope out's, and so on.
-        private static Selectable Recover(Selectable lost)
+        private static Selectable Recover(Selectable lost) => RecoverFrom(Innermost(lost.transform));
+
+        // What `scope` picks, or the next scope out's, and so on (null when `scope` is none, or destroyed).
+        private static Selectable RecoverFrom(FocusScope scope)
         {
-            for (var scope = Innermost(lost.transform); scope != null; scope = Innermost(scope.transform.parent))
+            for (; scope != null; scope = Innermost(scope.transform.parent))
             {
                 var target = Target(scope);
                 if (target != null) return target;

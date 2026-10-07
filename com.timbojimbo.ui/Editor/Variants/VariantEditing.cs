@@ -41,6 +41,10 @@ namespace TimboJimboEditor.UI.Variants
         {
             if (PrefabUtility.IsPartOfPrefabInstance(set))
                 PrefabUtility.RecordPrefabInstancePropertyModifications(set);
+            // Changed outside its inspector, it is not validated: in play mode it would go on applying from entries as they
+            // were (and past the end of a variant's list, once one is taken out).
+            if (UnityEngine.Application.isPlaying)
+                set.Rebuild();
             VariantPreview.MarkDirty();
         }
     }

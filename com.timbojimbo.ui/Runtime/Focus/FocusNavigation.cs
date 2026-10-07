@@ -137,39 +137,59 @@ namespace TimboJimbo.UI.Focus
             }
         }
 
+        // ReadingOrder's working lists and the rects it is sorting, kept so that it makes nothing: focus steering can ask
+        // for a scope's first in reading order every frame.
+        private static readonly List<int> s_byTop = new();
+        private static readonly List<int> s_row = new();
+        private static readonly List<int> s_order = new();
+        private static IReadOnlyList<Rect> s_sorting;
+        private static readonly IComparer<int> s_higherFirst = new EdgeOrder(top: true);
+        private static readonly IComparer<int> s_leftFirst = new EdgeOrder(top: false);
+
         /// <summary>
         /// The indices of <paramref name="rects"/> in reading order, as Tab goes: in rows from the top down, a rect
         /// joining the row above it when its middle lies within that row's first rect's height, and left to right along
-        /// each row.
+        /// each row. The list is shared, and good until the next call.
         /// </summary>
         public static List<int> ReadingOrder(IReadOnlyList<Rect> rects)
         {
-            var byTop = new List<int>(rects.Count);
-            for (int i = 0; i < rects.Count; i++) byTop.Add(i);
-            byTop.Sort((a, b) => rects[b].yMax.CompareTo(rects[a].yMax));
+            s_sorting = rects;
+            s_byTop.Clear();
+            for (int i = 0; i < rects.Count; i++) s_byTop.Add(i);
+            s_byTop.Sort(s_higherFirst);
 
-            var order = new List<int>(rects.Count);
-            var row = new List<int>();
+            s_order.Clear();
+            s_row.Clear();
             Rect head = default;
-            foreach (int i in byTop)
+            foreach (int i in s_byTop)
             {
                 float middle = rects[i].center.y;
-                if (row.Count > 0 && (middle < head.yMin || middle > head.yMax))
-                {
-                    Flush(row, rects, order);
-                    row.Clear();
-                }
-                if (row.Count == 0) head = rects[i];
-                row.Add(i);
+                if (s_row.Count > 0 && (middle < head.yMin || middle > head.yMax))
+                    Flush();
+                if (s_row.Count == 0) head = rects[i];
+                s_row.Add(i);
             }
-            Flush(row, rects, order);
-            return order;
+            Flush();
+            s_sorting = null;
+            return s_order;
         }
 
-        private static void Flush(List<int> row, IReadOnlyList<Rect> rects, List<int> order)
+        private static void Flush()
         {
-            row.Sort((a, b) => rects[a].xMin.CompareTo(rects[b].xMin));
-            order.AddRange(row);
+            s_row.Sort(s_leftFirst);
+            s_order.AddRange(s_row);
+            s_row.Clear();
+        }
+
+        // Indices by their rect in s_sorting: the one reaching higher first, or the one further left.
+        private sealed class EdgeOrder : IComparer<int>
+        {
+            private readonly bool _top;
+
+            public EdgeOrder(bool top) => _top = top;
+
+            public int Compare(int a, int b) =>
+                _top ? s_sorting[b].yMax.CompareTo(s_sorting[a].yMax) : s_sorting[a].xMin.CompareTo(s_sorting[b].xMin);
         }
     }
 }

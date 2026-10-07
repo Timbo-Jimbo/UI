@@ -357,6 +357,9 @@ namespace TimboJimbo.UI.Variants
                             });
                             found.Add(key, s);
                         }
+                        // Each entry is checked, not only the first for its slot: one recorded before its field was retyped
+                        // (a float made a Vector2) is left out rather than written as the wrong kind.
+                        if (slots[s].Accessor.Kind != entry.Value.Kind) continue;
                         map[e] = s;
                     }
                 }
@@ -366,9 +369,9 @@ namespace TimboJimbo.UI.Variants
             _applied = new string[_groups.Count];
         }
 
-        // Its variants changed while it is applied (edited in the inspector in play mode): put back every default it has
-        // changed, forget them, and apply again from what the variants now say.
-        private void Rebuild()
+        // Its variants changed while it is applied (edited in the inspector, or from a property's menu, in play mode): put
+        // back every default it has changed, forget them, and apply again from what the variants now say.
+        internal void Rebuild()
         {
             if (_slots == null) return;
             foreach (var slot in _slots)
