@@ -325,6 +325,7 @@ namespace TimboJimbo.UI.Layout
                 Stop(state.Opacity);
                 Stop(state.Scale);
                 Stop(state.Shown);
+                StopRiding(state, arrived: false);
                 if (state.ShownQueued)
                 {
                     state.ShownQueued = false;
@@ -603,7 +604,7 @@ namespace TimboJimbo.UI.Layout
         }
 
         // Puts everything the transition is moving on nodes, and the scrolls it is moving, where they are going, as if
-        // they had got there (MotionTransition.Skip).
+        // they had got there (MotionTransition.Skip); a node it hid that rides out is put away.
         internal static void SkipNodes(MotionTransition transition)
         {
             foreach (var state in s_states.Values)
@@ -616,6 +617,11 @@ namespace TimboJimbo.UI.Layout
                 var scroll = state.Scroll;
                 if (scroll != null && scroll.Offset.Transition == transition)
                     StopScrollAt(scroll, scroll.Offset.Target, arrived: true);
+                if (state.Rides == transition)
+                {
+                    PutAway(state);
+                    state.Leaving = state.Riding = false;
+                }
             }
         }
 
@@ -1203,6 +1209,7 @@ namespace TimboJimbo.UI.Layout
                         if (cameIn)
                             state.PassAppearing = true;
                         state.Leaving = state.Riding = state.Thrown = state.EffectOff = false;
+                        StopRiding(state, arrived: false);
                     }
                     else if (transition != null && !state.PassUnseen)
                     {
@@ -1210,6 +1217,7 @@ namespace TimboJimbo.UI.Layout
                         if (aboveLeaving)
                         {
                             state.Riding = true;
+                            RideFor(state, transition);
                         }
                         else
                         {
@@ -1600,8 +1608,7 @@ namespace TimboJimbo.UI.Layout
             {
                 var above = AboveOf(state);
                 if (above != null && above.PassLeaving) return;
-                PutAt(state.Shown, Vector2.zero);
-                PutAt(state.Opacity, new Vector2(OpacityTargetOf(state), 0f));
+                PutAway(state);
             }
             else if (state.PassFrozen || state.Position.Moving || state.Size.Moving || state.Opacity.Moving
                      || state.Scale.Moving || state.Shown.Moving)
@@ -1609,6 +1616,36 @@ namespace TimboJimbo.UI.Layout
                 return;
             }
             state.Leaving = state.Riding = state.Thrown = state.EffectOff = false;
+        }
+
+        // Puts a node riding out away at once, not shown and at its away opacity, and lets the change that hid it finish:
+        // it has gone, as that change asked.
+        private static void PutAway(NodeState state)
+        {
+            PutAt(state.Shown, Vector2.zero);
+            PutAt(state.Opacity, new Vector2(OpacityTargetOf(state), 0f));
+            StopRiding(state, arrived: true);
+        }
+
+        // A node hidden inside a change while something above it is leaving rides that out, moving nothing of its own: it
+        // holds the change that hid it open itself, so that change finishes only once the node has gone (a row deleted
+        // from a page as the page closes, returned to its pool when the delete finishes).
+        private static void RideFor(NodeState state, MotionTransition transition)
+        {
+            if (state.Rides == transition) return;
+            StopRiding(state, arrived: false);
+            state.Rides = transition;
+            MotionSystem.HoldOpen(transition);
+        }
+
+        // Lets go of the change a riding node holds open: `arrived` when it has gone, not when it was shown again or
+        // disabled first.
+        private static void StopRiding(NodeState state, bool arrived)
+        {
+            var transition = state.Rides;
+            if (transition == null) return;
+            state.Rides = null;
+            MotionSystem.LetGo(transition, arrived);
         }
 
         // Queues ShownChanged for a node whose shown value as drawn is not what it was last raised with.

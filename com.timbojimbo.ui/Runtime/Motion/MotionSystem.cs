@@ -239,6 +239,16 @@ namespace TimboJimbo.UI.Motion
             var transition = spring.Transition;
             if (transition == null) return;
             spring.Transition = null;
+            LetGo(transition, arrived);
+        }
+
+        // Keeps a transition from finishing for something it moves with no spring of its own (a layout node it hid that
+        // rides out inside one already leaving), until LetGo.
+        internal static void HoldOpen(MotionTransition transition) => transition.Moving++;
+
+        // Lets go of what held a transition open, a spring or HoldOpen, having `arrived` or not (see Release).
+        internal static void LetGo(MotionTransition transition, bool arrived)
+        {
             if (!arrived)
                 transition.Interrupted = true;
             if (--transition.Moving <= 0)

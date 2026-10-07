@@ -49,6 +49,10 @@ namespace TimboJimbo.UI.Layout
         public bool Thrown;
         public bool EffectOff;
 
+        // The change that hid it while it rides out, kept from finishing until it has gone (it moves nothing of its own,
+        // so no spring of it holds that change).
+        public MotionTransition Rides;
+
         // Whether what last set its position moving for no change was a fling (Fling), rather than its away move handed
         // over outside a change (UpdateAway), which sets one off for no change too. Only a fling's motion is thrown on
         // as the node is hidden: a handover's is only the rest of a slide it was drawn partway through.

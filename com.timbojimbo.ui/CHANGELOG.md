@@ -27,6 +27,7 @@ Needs Core's next version (`ColorExtra.Lerp(mode, from, to, t)`).
 - Focus steering allocated every frame, through reading order, which made new lists and closures each time it was asked (a scope entered at its last focused or default, with neither yet, asks every frame)
 - Variants: an entry recorded before its field was retyped (a float made a Vector2) was written as the wrong kind, and threw, when another variant's entry for the same property was of the right kind
 - Variants: adding a property to a variant, or taking one out, from a property's menu in play mode left the set applying its old entries, and threw once one was taken out
+- A change that hid a node inside one already on its way out (a row deleted from a page as the page closes) finished at once, the node riding the page out with no spring of its own to hold it, so a `Finished` handler pooling or destroying the row cut it from the page mid-slide: the node holds the change open until it has gone
 
 ## [0.4.0] - 06/10/2026
 
