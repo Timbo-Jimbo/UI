@@ -1,6 +1,6 @@
-## [Unreleased]
+## [0.5.0] - 12/10/2026
 
-Needs Core's next version (`ColorExtra.Lerp(mode, from, to, t)`).
+Needs Core 0.7.0 (`ColorExtra.Lerp(mode, from, to, t)`).
 
 ### Added
 
@@ -12,7 +12,7 @@ Needs Core's next version (`ColorExtra.Lerp(mode, from, to, t)`).
 
 - Layout works only on what changed, as UIKit lays out only the views that need it. A tree (a root and its nodes, down to the next root) is laid out again only once something it is laid out from has changed: a node's settings, which nodes it has, what their content measures, a scroll asked of it, or what its root lies against (its size, the safe area, a keyboard over a node that avoids it), each read every frame as before. It is stepped and drawn only while something in it moves, and a node writes only what differs from what it last wrote into its RectTransform and CanvasGroup, without reading them back. A screen at rest now costs next to nothing a frame, where every tree was solved, stepped and written every frame. Edit mode still does it all every frame. Content and drag owners added, enabled or changed later tell their node (`LayoutNode.ContentChanged`), and something else setting what the system owns on a node (its RectTransform, its CanvasGroup's alpha) is no longer put back the next frame
 - A software keyboard is no longer part of a root's safe area: nothing moves for it unless it opts in (`AvoidsKeyboard`), as in UIKit. Before, every root kept its content clear of it, so the screen behind a page being popped, and a tab bar floating in it, slid down as the keyboard hid during the transition
-- The gradient preview in the Box and Img inspectors interpolates through Core's `ColorExtra.Lerp(mode, ...)`, so it and every other colour transition share one switch over the modes; needs Core's next version
+- The gradient preview in the Box and Img inspectors interpolates through Core's `ColorExtra.Lerp(mode, ...)`, so it and every other colour transition share one switch over the modes; needs Core 0.7.0
 
 ### Fixed
 
